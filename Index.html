@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #121A2B;
+  --surface: #1A2438;
+  --raised: #222E47;
+  --line: #2B3753;
+  --text: #ECE7DA;
+  --muted: #98A0B3;
+  --brass: #C9A227;
+  --brass-soft: rgba(201, 162, 39, 0.14);
+  --danger: #E57A64;
+  --ok: #8CC59A;
+  --user-bubble: #2A3858;
+  --radius-s: 6px;
+  --radius-m: 12px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ink: #F1F3F7; --surface: #FFFFFF; --raised: #E7EBF2; --line: #D3D9E4;
+    --text: #18213A; --muted: #5E6880; --brass: #94740C; --brass-soft: rgba(148, 116, 12, 0.10);
+    --danger: #B9432C; --ok: #2F7A45; --user-bubble: #DCE3F0; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --ink: #F1F3F7; --surface: #FFFFFF; --raised: #E7EBF2; --line: #D3D9E4;
+  --text: #18213A; --muted: #5E6880; --brass: #94740C; --brass-soft: rgba(148, 116, 12, 0.10);
+  --danger: #B9432C; --ok: #2F7A45; --user-bubble: #DCE3F0; color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--ink);
+  color: var(--text);
+  font: 15px/1.5 "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+a { color: var(--brass); }
+[hidden] { display: none !important; }
+
+/* Header */
+.bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line);
+  background: var(--ink); position: sticky; top: 0; z-index: 2;
+}
+.presence { width: 26px; height: 26px; flex: none; }
+.presence circle { fill: none; stroke: var(--brass); }
+.presence .core { stroke-width: 2; }
+.presence .orbit { stroke-width: 2; stroke-dasharray: 12 58; opacity: 0; transform-origin: 13px 13px; }
+body.busy .presence .orbit { opacity: 1; animation: orbit 1.6s linear infinite; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { body.busy .presence .orbit { animation: none; stroke-dasharray: none; opacity: .5; } }
+.who { flex: 1; min-width: 0; }
+.who b { display: block; font-size: 17px; font-weight: 700; letter-spacing: .01em; }
+.who span { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn {
+  background: none; border: 1px solid transparent; border-radius: var(--radius-s);
+  width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted);
+}
+.icon-btn:hover { color: var(--text); border-color: var(--line); }
+.icon-btn[aria-pressed="true"] { color: var(--brass); }
+.icon-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Conversation */
+main { flex: 1; overflow-y: auto; padding: 16px 14px 8px; scroll-behavior: smooth; }
+.thread { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.msg-user {
+  align-self: flex-end; max-width: 85%;
+  background: var(--user-bubble); padding: 8px 12px; border-radius: var(--radius-m) var(--radius-m) 4px var(--radius-m);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg-assistant { overflow-wrap: anywhere; }
+.msg-assistant p { margin: 0 0 8px; }
+.msg-assistant p:last-child { margin-bottom: 0; }
+.msg-assistant ul, .msg-assistant ol { margin: 4px 0 8px; padding-left: 20px; }
+.msg-assistant h4 { margin: 12px 0 4px; font-size: 15px; }
+.msg-assistant code { background: var(--raised); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+.action { display: flex; gap: 8px; font-size: 13px; color: var(--muted); align-items: baseline; }
+.action::before { content: "✓"; color: var(--ok); flex: none; }
+.action.failed::before { content: "!"; color: var(--danger); font-weight: 700; }
+.action.declined::before { content: "×"; color: var(--muted); }
+.action .detail { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note { font-size: 13px; color: var(--muted); font-style: italic; }
+.error {
+  font-size: 14px; border-left: 3px solid var(--danger); padding: 6px 10px; background: var(--surface);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0; overflow-wrap: anywhere;
+}
+
+/* Approval card */
+.approve {
+  border: 1px solid var(--brass); background: var(--brass-soft);
+  border-radius: var(--radius-m); padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.approve h3 { margin: 0; font-size: 14px; font-weight: 700; }
+.approve .call { background: var(--surface); border-radius: var(--radius-s); padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; max-height: 220px; overflow-y: auto; }
+.approve label { display: flex; gap: 8px; align-items: flex-start; }
+.approve input[type=checkbox] { margin-top: 10px; accent-color: var(--brass); }
+.approve .auto { font-size: 13px; color: var(--muted); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  border-radius: var(--radius-s); padding: 8px 14px; border: 1px solid var(--line);
+  background: var(--surface); font-weight: 600;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--brass); border-color: var(--brass); color: #171204; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .55; cursor: default; }
+
+/* Empty state */
+.welcome { margin: 10vh auto 0; max-width: 420px; text-align: left; }
+.welcome h2 { font-size: 22px; margin: 0 0 6px; }
+.welcome p { color: var(--muted); margin: 0 0 14px; }
+.ideas { display: flex; flex-direction: column; gap: 6px; }
+.ideas button {
+  text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s);
+  padding: 9px 12px;
+}
+.ideas button:hover { border-color: var(--brass); }
+
+/* Composer */
+.composer {
+  border-top: 1px solid var(--line); padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--ink);
+}
+.composer form { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea {
+  flex: 1; resize: none; min-height: 42px; max-height: 160px; padding: 9px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); line-height: 1.4;
+  overflow-y: hidden;
+}
+.composer textarea:focus { border-color: var(--brass); outline: none; }
+.send { height: 42px; }
+.hint { max-width: 720px; margin: 6px auto 0; font-size: 12px; color: var(--muted); min-height: 1em; }
+
+/* Panels (chats list, setup) */
+.panel {
+  position: fixed; inset: 0; background: var(--ink); z-index: 5; display: flex; flex-direction: column;
+}
+.panel-body { flex: 1; overflow-y: auto; padding: 16px 14px 24px; }
+.panel-inner { max-width: 520px; margin: 0 auto; }
+.panel h2 { font-size: 18px; margin: 0 0 4px; }
+.panel .sub { color: var(--muted); margin: 0 0 18px; font-size: 14px; }
+.chat-item { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
+.chat-item button.open { flex: 1; text-align: left; background: none; border: none; padding: 11px 2px; min-width: 0; }
+.chat-item .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-item .d { display: block; font-size: 12px; color: var(--muted); }
+.chat-item.current .t { color: var(--brass); font-weight: 600; }
+
+fieldset { border: none; padding: 0; margin: 0 0 18px; }
+legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.field > span { font-weight: 600; font-size: 14px; }
+.field small { color: var(--muted); font-size: 13px; }
+.field input[type=text], .field input[type=password], .field select {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 9px 10px; width: 100%;
+}
+.field input:focus, .field select:focus { border-color: var(--brass); outline: none; }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); margin-bottom: 8px; background: var(--surface); }
+.choice:has(input:checked) { border-color: var(--brass); }
+.choice input { margin-top: 4px; accent-color: var(--brass); }
+.choice b { display: block; }
+.choice small { color: var(--muted); }
+.check { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+.check input { margin-top: 4px; accent-color: var(--brass); }
+.status { margin-top: 12px; font-size: 14px; min-height: 1.2em; }
+.status.bad { color: var(--danger); }
+.status.good { color: var(--ok); }
+.learn-status { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.learn-status.on { color: var(--ok); }
+.conn-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); padding: 10px 0; }
+.conn-row .meta { flex: 1; min-width: 0; }
+.conn-row .meta b { display: block; }
+.conn-row .meta small { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.pill.on { color: var(--ok); border-color: var(--ok); }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <svg class="presence" viewBox="0 0 26 26" aria-hidden="true">
+    <circle class="core" cx="13" cy="13" r="6"></circle>
+    <circle class="orbit" cx="13" cy="13" r="11"></circle>
+  </svg>
+  <div class="who">
+    <b id="name">Jarvis</b>
+    <span id="status">Starting up…</span>
+  </div>
+  <button class="icon-btn" id="speakBtn" type="button" aria-pressed="false" title="Read replies aloud">
+    <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+  </button>
+  <button class="icon-btn" id="chatsBtn" type="button" title="Chats">
+    <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+  </button>
+  <button class="icon-btn" id="setupBtn" type="button" title="Settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main id="scroller">
+  <div class="thread" id="thread" aria-live="polite"></div>
+</main>
+
+<footer class="composer">
+  <form id="composer">
+    <textarea id="input" rows="1" placeholder="Message Jarvis" aria-label="Message"></textarea>
+    <button class="icon-btn" id="micBtn" type="button" title="Speak" hidden>
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <button class="btn primary send" id="sendBtn" type="submit">Send</button>
+  </form>
+  <div class="hint" id="hint"></div>
+</footer>
+
+<section class="panel" id="chatsPanel" hidden aria-label="Chats">
+  <header class="bar">
+    <div class="who"><b>Chats</b></div>
+    <button class="btn primary" id="newChatBtn" type="button">New chat</button>
+    <button class="icon-btn" data-close type="button" title="Close">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="panel-body"><div class="panel-inner" id="chatList"></div></div>
+</section>
+
+<section class="panel" id="setupPanel" hidden aria-label="Settings">
+  <header class="bar">
+    <div class="who"><b>Settings</b></div>
+    <button class="icon-btn" data-close type="button" title="Close" id="setupClose">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="panel-body"><div class="panel-inner">
+    <h2 id="setupTitle">Set up your assistant</h2>
+    <p class="sub" id="setupSub">Pick the AI that powers it and paste your key. Your key is stored privately in your Google account, never in the Sheet.</p>
+    <form id="setupForm">
+      <fieldset>
+        <legend>AI</legend>
+        <label class="choice"><input type="radio" name="provider" value="gemini" checked>
+          <span><b>Gemini</b><small>Free tier available. Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. On the free tier, Google may use what you send, including emails Jarvis reads, to improve its products, and people may review it. Turning on billing for the key stops that (<a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener">terms</a>).</small></span></label>
+        <label class="choice"><input type="radio" name="provider" value="claude">
+          <span><b>Claude</b><small>Best at multi-step tasks. Paid. Get a key at <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>.</small></span></label>
+      </fieldset>
+      <label class="field" id="geminiKeyField"><span>Gemini API key</span>
+        <input type="password" name="gemini_key" autocomplete="off" placeholder="Paste your key">
+        <small id="geminiKeyState"></small></label>
+      <label class="field" id="claudeKeyField" hidden><span>Claude API key</span>
+        <input type="password" name="claude_key" autocomplete="off" placeholder="Paste your key">
+        <small id="claudeKeyState"></small></label>
+      <label class="field"><span>Your name</span>
+        <input type="text" name="your_name" autocomplete="given-name" placeholder="What should I call you?"></label>
+      <fieldset>
+        <legend>Habits</legend>
+        <label class="check"><input type="checkbox" name="confirm_actions" checked>
+          <span>Ask me before sending email, changing my calendar, trashing or sharing anything</span></label>
+        <label class="check"><input type="checkbox" name="briefing_enabled" checked>
+          <span>Email me a morning briefing</span></label>
+        <label class="field"><span>Briefing time</span>
+          <select name="briefing_hour"></select></label>
+      </fieldset>
+      <fieldset>
+        <legend>Learn my data</legend>
+        <label class="check"><input type="checkbox" name="learn_enabled">
+          <span>Study my Gmail, Calendar, Drive and Contacts in the background and remember people, projects and commitments</span></label>
+        <label class="field"><span>How far back to learn</span>
+          <select name="learn_window_months">
+            <option value="3">Last 3 months</option>
+            <option value="12" selected>Last 12 months</option>
+            <option value="0">Everything</option>
+          </select></label>
+        <div class="learn-status" id="learnStatus"></div>
+        <div class="row" id="learnButtons" hidden>
+          <button class="btn" type="button" id="learnNowBtn">Learn a batch now</button>
+          <button class="btn" type="button" id="forgetBtn">Forget everything learned</button>
+        </div>
+        <p class="sub">On the free Gemini tier, Google may use and review what you send, including the data Jarvis reads while learning. Turn on billing for the key to stop that.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Connected apps</legend>
+        <p class="sub" style="margin-bottom:8px">Let Jarvis call other apps' APIs (GitHub, Notion, anything). Keys are stored privately, never in the Sheet.</p>
+        <button class="btn" type="button" id="connectionsBtn">Manage connections</button>
+      </fieldset>
+      <fieldset>
+        <legend>This PC</legend>
+        <label class="check"><input type="checkbox" name="desktop_enabled">
+          <span>Let Jarvis control this computer: open and close apps, open files and sites, read and write files, type, press shortcuts, screenshot, and run PowerShell. Every action still waits for your approval.</span></label>
+        <div class="learn-status" id="desktopStatus"></div>
+        <p class="sub">This needs the companion program running on your PC. See companion/README.md. Powerful: a bad approval could change files or settings, so read each command before approving.</p>
+      </fieldset>
+      <div class="row">
+        <button class="btn primary" type="submit" id="saveBtn">Save</button>
+        <button class="btn" type="button" id="testBtn">Test connection</button>
+      </div>
+      <div class="status" id="setupStatus" role="status"></div>
+      <p class="sub" style="margin-top:18px">More options (models, automations, memory, knowledge) live in the tabs of the Jarvis Sheet.</p>
+    </form>
+  </div></div>
+</section>
+
+<section class="panel" id="connectionsPanel" hidden aria-label="Connections">
+  <header class="bar">
+    <div class="who"><b>Connections</b></div>
+    <button class="btn primary" id="addConnectionBtn" type="button">Add</button>
+    <button class="icon-btn" data-close type="button" title="Close">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="panel-body"><div class="panel-inner">
+    <p class="sub">Each connection is an outside app Jarvis can call. Give it a name, the app's base web address, and how it signs in. Paste the key here; it never goes in the Sheet.</p>
+    <div id="connectionList"></div>
+    <form id="connectionForm" hidden>
+      <h2 id="connTitle" style="font-size:16px">New connection</h2>
+      <label class="field"><span>Name</span><input type="text" name="name" placeholder="e.g. github"></label>
+      <label class="field"><span>Base URL</span><input type="text" name="base_url" placeholder="https://api.github.com"></label>
+      <label class="field"><span>Sign-in</span>
+        <select name="auth_type">
+          <option value="none">None (public API)</option>
+          <option value="bearer">Bearer token (Authorization: Bearer …)</option>
+          <option value="header">API key in a header</option>
+          <option value="basic">Basic (user:pass or token)</option>
+        </select></label>
+      <label class="field" id="authNameField" hidden><span>Header name</span><input type="text" name="auth_name" placeholder="X-API-Key"></label>
+      <label class="field"><span>What it is</span><input type="text" name="about" placeholder="What this app is for"></label>
+      <label class="field"><span>Key / token</span><input type="password" name="key" autocomplete="off" placeholder="Leave blank to keep the saved key"></label>
+      <label class="check"><input type="checkbox" name="enabled" checked><span>Enabled</span></label>
+      <div class="row">
+        <button class="btn primary" type="submit">Save connection</button>
+        <button class="btn" type="button" id="connCancel">Cancel</button>
+      </div>
+      <div class="status" id="connStatus" role="status"></div>
+    </form>
+  </div></div>
+</section>
+
+<script>
+(function () {
+  var state = { boot: null, chat: null, busy: false, speak: false };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function store(key, value) {
+    try {
+      if (value === undefined) return localStorage.getItem(key);
+      localStorage.setItem(key, value);
+    } catch (e) { return null; }
+  }
+
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve) {
+      google.script.run
+        .withSuccessHandler(function (res) { resolve(res || { ok: false, error: 'Empty response' }); })
+        .withFailureHandler(function (err) { resolve({ ok: false, error: (err && err.message) || String(err) }); })[fn].apply(null, args);
+    });
+  }
+
+  function setBusy(on, label) {
+    state.busy = on;
+    document.body.classList.toggle('busy', on);
+    $('sendBtn').disabled = on;
+    $('status').textContent = on ? (label || 'Working…') : statusLine();
+  }
+
+  function statusLine() {
+    var b = state.boot;
+    if (!b) return '';
+    return 'Using ' + (state.chat && state.chat.model ? state.chat.model : b.model);
+  }
+
+  // ---- Markdown (small, escapes everything first) ----
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[\s(])\*(?!\s)(.+?)\*(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  }
+  function markdown(md) {
+    var out = [], list = null, para = [];
+    function flushPara() { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } }
+    function closeList() { if (list) { out.push('</' + list + '>'); list = null; } }
+    String(md).split('\n').forEach(function (line) {
+      var ul = /^\s*[-*•] (.*)/.exec(line), ol = /^\s*\d+[.)] (.*)/.exec(line), h = /^#{1,4} (.*)/.exec(line);
+      if (ul || ol) {
+        flushPara();
+        var kind = ul ? 'ul' : 'ol';
+        if (list !== kind) { closeList(); out.push('<' + kind + '>'); list = kind; }
+        out.push('<li>' + inline((ul || ol)[1]) + '</li>');
+      } else if (h) {
+        flushPara(); closeList(); out.push('<h4>' + inline(h[1]) + '</h4>');
+      } else if (!line.trim()) {
+        flushPara(); closeList();
+      } else {
+        closeList(); para.push(line);
+      }
+    });
+    flushPara(); closeList();
+    return out.join('');
+  }
+
+  // ---- Rendering ----
+  function el(tag, cls, html) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html !== undefined) n.innerHTML = html;
+    return n;
+  }
+
+  function renderWelcome() {
+    var name = state.boot ? state.boot.name : 'Jarvis';
+    var w = el('div', 'welcome');
+    w.appendChild(el('h2', '', esc('What can I take off your plate?')));
+    w.appendChild(el('p', '', esc(name + ' can read and act on your Gmail, Calendar, Drive, Docs, Sheets and Tasks. Anything that sends or changes things waits for your OK.')));
+    var ideas = el('div', 'ideas');
+    ['What\'s on my calendar tomorrow?', 'Summarize my unread email from today', 'Find a free hour next week and draft an invite to Sam', 'Whenever I get a receipt, label it Receipts and archive it'].forEach(function (t) {
+      var b = el('button', '', esc(t));
+      b.type = 'button';
+      b.onclick = function () { $('input').value = t; send(); };
+      ideas.appendChild(b);
+    });
+    w.appendChild(ideas);
+    return w;
+  }
+
+  function render() {
+    var thread = $('thread');
+    thread.innerHTML = '';
+    if (!state.chat || !state.chat.display.length) {
+      thread.appendChild(renderWelcome());
+      return;
+    }
+    state.chat.display.forEach(function (d) {
+      if (d.role === 'user') thread.appendChild(el('div', 'msg-user', esc(d.text)));
+      else if (d.role === 'assistant') thread.appendChild(el('div', 'msg-assistant', markdown(d.text)));
+      else if (d.role === 'action') {
+        var a = el('div', 'action' + (d.declined ? ' declined' : d.ok ? '' : ' failed'));
+        var text = d.declined ? 'Skipped: ' + firstLine(d.text) : d.ok ? firstLine(d.text) : firstLine(d.text) + ' failed: ' + (d.error || '');
+        a.appendChild(el('span', 'detail', esc(text)));
+        thread.appendChild(a);
+      }
+      else if (d.role === 'note') thread.appendChild(el('div', 'note', esc(d.text)));
+      else if (d.role === 'error') thread.appendChild(el('div', 'error', esc(d.text)));
+    });
+    if (state.chat.pending) thread.appendChild(renderApproval(state.chat.pending));
+    requestAnimationFrame(function () { $('scroller').scrollTop = $('scroller').scrollHeight; });
+  }
+
+  function firstLine(t) { return String(t).split('\n')[0]; }
+
+  function renderApproval(calls) {
+    var card = el('div', 'approve');
+    var needs = calls.filter(function (c) { return c.confirm; });
+    card.appendChild(el('h3', '', esc(needs.length > 1 ? 'Approve these ' + needs.length + ' actions?' : 'Approve this action?')));
+    var boxes = [];
+    needs.forEach(function (c) {
+      if (needs.length > 1) {
+        var label = el('label');
+        var box = document.createElement('input');
+        box.type = 'checkbox'; box.checked = true; box.value = c.id;
+        boxes.push(box);
+        label.appendChild(box);
+        label.appendChild(el('div', 'call', esc(c.summary)));
+        card.appendChild(label);
+      } else {
+        card.appendChild(el('div', 'call', esc(c.summary)));
+      }
+    });
+    var auto = calls.filter(function (c) { return !c.confirm; });
+    if (auto.length) card.appendChild(el('div', 'auto', esc('Also: ' + auto.map(function (c) { return firstLine(c.summary); }).join('; '))));
+    var row = el('div', 'row');
+    var yes = el('button', 'btn primary', needs.length > 1 ? 'Approve selected' : 'Approve');
+    var no = el('button', 'btn', needs.length > 1 ? 'Decline all' : 'Decline');
+    yes.type = no.type = 'button';
+    yes.onclick = function () {
+      var decisions = {};
+      needs.forEach(function (c, i) { decisions[c.id] = needs.length > 1 ? boxes[i].checked : true; });
+      answer(decisions);
+    };
+    no.onclick = function () { answer({}); };
+    row.appendChild(yes); row.appendChild(no);
+    card.appendChild(row);
+    setTimeout(function () { yes.focus(); }, 50);
+    return card;
+  }
+
+  // ---- Speaking and listening ----
+  function speakNew(prevCount) {
+    if (!state.speak || !window.speechSynthesis || !state.chat) return;
+    var fresh = state.chat.display.slice(prevCount).filter(function (d) { return d.role === 'assistant'; });
+    if (!fresh.length) return;
+    var text = fresh.map(function (d) { return d.text; }).join(' ').replace(/[*#`_>\[\]]/g, '').replace(/\(https?:[^)]+\)/g, '');
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text.slice(0, 1500)));
+  }
+
+  function setupMic() {
+    var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) return;
+    var mic = $('micBtn');
+    mic.hidden = false;
+    var rec = null;
+    mic.onclick = function () {
+      if (rec) { rec.stop(); return; }
+      rec = new Rec();
+      rec.lang = navigator.language || 'en-US';
+      rec.interimResults = true;
+      mic.setAttribute('aria-pressed', 'true');
+      $('hint').textContent = 'Listening…';
+      rec.onresult = function (e) {
+        var text = '';
+        for (var i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+        $('input').value = text;
+        autoGrow();
+      };
+      rec.onerror = function (e) {
+        $('hint').textContent = e.error === 'not-allowed' || e.error === 'service-not-allowed'
+          ? 'This page is not allowed to use the microphone. Use your keyboard\'s dictation key instead.'
+          : 'Voice input stopped: ' + e.error;
+      };
+      rec.onend = function () {
+        mic.setAttribute('aria-pressed', 'false');
+        rec = null;
+        if ($('hint').textContent === 'Listening…') $('hint').textContent = '';
+        if ($('input').value.trim()) send();
+      };
+      try { rec.start(); } catch (err) { $('hint').textContent = 'Voice input is not available here.'; rec = null; }
+    };
+  }
+
+  // ---- Actions ----
+  function applyChat(res, prevCount) {
+    if (!res.ok) {
+      $('hint').textContent = res.error;
+      return;
+    }
+    state.chat = res.chat;
+    store('jarvis.chat', state.chat.id);
+    render();
+    speakNew(prevCount);
+  }
+
+  function send() {
+    var text = $('input').value.trim();
+    if (!text || state.busy) return;
+    if (!state.boot || !state.boot.hasKey[state.boot.provider]) { openSetup(); return; }
+    $('input').value = '';
+    autoGrow();
+    $('hint').textContent = '';
+    var prev = state.chat ? state.chat.display.length : 0;
+    if (!state.chat) state.chat = { id: null, display: [], pending: null, model: state.boot.model };
+    state.chat.pending = null;
+    state.chat.display.push({ role: 'user', text: text });
+    render();
+    setBusy(true, 'Thinking…');
+    call('api_send', state.chat.id, text).then(function (res) {
+      setBusy(false);
+      applyChat(res, prev + 1);
+    });
+  }
+
+  function answer(decisions) {
+    if (state.busy || !state.chat) return;
+    var prev = state.chat.display.length;
+    state.chat.pending = null;
+    render();
+    setBusy(true, 'Carrying that out…');
+    call('api_confirm', state.chat.id, decisions).then(function (res) {
+      setBusy(false);
+      applyChat(res, prev);
+    });
+  }
+
+  function openChat(id) {
+    closePanels();
+    setBusy(true, 'Opening chat…');
+    call('api_getChat', id).then(function (res) {
+      setBusy(false);
+      if (res.ok) { state.chat = res.chat; store('jarvis.chat', id); render(); }
+      else { store('jarvis.chat', ''); newChat(); }
+    });
+  }
+
+  function newChat() {
+    closePanels();
+    state.chat = null;
+    store('jarvis.chat', '');
+    render();
+    $('status').textContent = statusLine();
+    $('input').focus();
+  }
+
+  function renderChatList(chats) {
+    var list = $('chatList');
+    list.innerHTML = '';
+    if (!chats.length) { list.appendChild(el('p', 'sub', 'No chats yet. Start one from the main screen.')); return; }
+    chats.forEach(function (c) {
+      var row = el('div', 'chat-item' + (state.chat && state.chat.id === c.id ? ' current' : ''));
+      var open = el('button', 'open', '<span class="t">' + esc(c.title) + '</span><span class="d">' + esc(new Date(c.updated).toLocaleString()) + '</span>');
+      open.type = 'button';
+      open.onclick = function () { openChat(c.id); };
+      var del = el('button', 'icon-btn', '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>');
+      del.type = 'button';
+      del.title = 'Delete chat';
+      del.setAttribute('aria-label', 'Delete chat: ' + c.title);
+      del.onclick = function () {
+        if (!confirm('Delete "' + c.title + '"? It moves to your Drive trash.')) return;
+        call('api_deleteChat', c.id).then(function (res) {
+          if (res.ok) {
+            if (state.chat && state.chat.id === c.id) { state.chat = null; store('jarvis.chat', ''); render(); }
+            renderChatList(res.chats);
+          }
+        });
+      };
+      row.appendChild(open); row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+
+  function openChats() {
+    $('chatsPanel').hidden = false;
+    $('chatList').innerHTML = '<p class="sub">Loading…</p>';
+    call('api_listChats').then(function (res) {
+      if (res.ok) renderChatList(res.chats);
+      else $('chatList').innerHTML = '<p class="sub">' + esc(res.error) + '</p>';
+    });
+  }
+
+  function closePanels() {
+    $('chatsPanel').hidden = true;
+    $('setupPanel').hidden = true;
+    $('connectionsPanel').hidden = true;
+  }
+
+  // ---- Setup ----
+  function providerChoice() {
+    var r = document.querySelector('input[name=provider]:checked');
+    return r ? r.value : 'gemini';
+  }
+
+  function syncKeyFields() {
+    var p = providerChoice();
+    $('geminiKeyField').hidden = p !== 'gemini';
+    $('claudeKeyField').hidden = p !== 'claude';
+  }
+
+  function openSetup() {
+    var b = state.boot;
+    var f = $('setupForm');
+    var configured = b && b.hasKey[b.provider];
+    $('setupTitle').textContent = configured ? 'Settings' : 'Set up your assistant';
+    $('setupClose').hidden = !configured;
+    if (b) {
+      f.provider.value = b.settings.provider;
+      f.your_name.value = b.settings.your_name || '';
+      f.confirm_actions.checked = /^(yes|true|y|1|on)$/i.test(b.settings.confirm_actions);
+      f.briefing_enabled.checked = /^(yes|true|y|1|on)$/i.test(b.settings.briefing_enabled);
+      f.briefing_hour.value = String(parseInt(b.settings.briefing_hour, 10) || 7);
+      f.learn_enabled.checked = /^(yes|true|y|1|on)$/i.test(b.settings.learn_enabled);
+      f.learn_window_months.value = String(b.settings.learn_window_months || '12');
+      f.desktop_enabled.checked = /^(yes|true|y|1|on)$/i.test(b.settings.desktop_enabled);
+      $('geminiKeyState').textContent = b.hasKey.gemini ? 'A key is saved. Leave blank to keep it.' : '';
+      $('claudeKeyState').textContent = b.hasKey.claude ? 'A key is saved. Leave blank to keep it.' : '';
+      renderLearnStatus();
+      renderDesktopStatus();
+    }
+    f.gemini_key.value = '';
+    f.claude_key.value = '';
+    $('setupStatus').textContent = '';
+    $('setupStatus').className = 'status';
+    syncKeyFields();
+    $('setupPanel').hidden = false;
+  }
+
+  function renderLearnStatus() {
+    var b = state.boot, el = $('learnStatus'), btns = $('learnButtons');
+    if (!b || !b.learner) { el.textContent = ''; btns.hidden = true; return; }
+    var L = b.learner;
+    btns.hidden = !L.enabled;
+    if (!L.enabled) { el.textContent = 'Off. Turn on and Save to start learning.'; el.className = 'learn-status'; return; }
+    var seen = Object.keys(L.sources).reduce(function (n, k) { return n + (L.sources[k].seen || 0); }, 0);
+    var done = Object.keys(L.sources).every(function (k) { return L.sources[k].done; });
+    el.className = 'learn-status on';
+    el.textContent = (L.phase === 'current' && done ? 'Caught up — keeping up with new items. ' : 'Learning… ') +
+      seen + ' items read, ' + L.facts + ' facts saved' + (L.last_run ? ' (last run ' + L.last_run + ')' : '') + '.';
+  }
+
+  function renderDesktopStatus() {
+    var b = state.boot, el = $('desktopStatus');
+    if (!b) { el.textContent = ''; return; }
+    if (!/^(yes|true|y|1|on)$/i.test(b.settings.desktop_enabled)) { el.textContent = ''; el.className = 'learn-status'; return; }
+    var connected = b.desktop && b.desktop.connected;
+    el.className = 'learn-status' + (connected ? ' on' : '');
+    el.textContent = connected ? 'Companion is running and connected.' : 'Waiting for the companion program to start on your PC.';
+  }
+
+  function saveSetup(e) {
+    e.preventDefault();
+    var f = $('setupForm');
+    var p = providerChoice();
+    var keyField = p === 'gemini' ? f.gemini_key : f.claude_key;
+    var status = $('setupStatus');
+    if (!keyField.value.trim() && !(state.boot && state.boot.hasKey[p])) {
+      status.textContent = 'Paste your ' + (p === 'gemini' ? 'Gemini' : 'Claude') + ' API key first.';
+      status.className = 'status bad';
+      keyField.focus();
+      return;
+    }
+    var form = {
+      provider: p,
+      gemini_key: f.gemini_key.value.trim(),
+      claude_key: f.claude_key.value.trim(),
+      your_name: f.your_name.value.trim(),
+      confirm_actions: f.confirm_actions.checked ? 'yes' : 'no',
+      briefing_enabled: f.briefing_enabled.checked ? 'yes' : 'no',
+      briefing_hour: f.briefing_hour.value,
+      learn_enabled: f.learn_enabled.checked ? 'yes' : 'no',
+      learn_window_months: f.learn_window_months.value,
+      desktop_enabled: f.desktop_enabled.checked ? 'yes' : 'no'
+    };
+    $('saveBtn').disabled = true;
+    status.textContent = 'Saving…';
+    status.className = 'status';
+    call('api_saveSetup', form).then(function (res) {
+      $('saveBtn').disabled = false;
+      if (!res.ok) { status.textContent = res.error; status.className = 'status bad'; return; }
+      applyBoot(res);
+      renderLearnStatus();
+      renderDesktopStatus();
+      status.textContent = res.message;
+      status.className = 'status good';
+      $('setupClose').hidden = false;
+      $('setupTitle').textContent = 'Settings';
+    });
+  }
+
+  function learnNow() {
+    var el = $('learnStatus');
+    el.textContent = 'Learning a batch now…';
+    $('learnNowBtn').disabled = true;
+    call('api_runLearner').then(function (res) {
+      $('learnNowBtn').disabled = false;
+      if (res.ok) { state.boot.learner = res.learner; renderLearnStatus(); el.textContent = res.message + ' ' + el.textContent; }
+      else { el.textContent = res.error; }
+    });
+  }
+
+  function forgetLearned() {
+    if (!confirm('Forget everything Jarvis has learned from your data? This clears the Knowledge tab.')) return;
+    call('api_forgetLearned').then(function (res) {
+      if (res.ok) { state.boot.learner = res.learner; renderLearnStatus(); }
+    });
+  }
+
+  function testConnection() {
+    var status = $('setupStatus');
+    status.textContent = 'Asking the AI to say hello…';
+    status.className = 'status';
+    $('testBtn').disabled = true;
+    call('api_testConnection').then(function (res) {
+      $('testBtn').disabled = false;
+      status.textContent = res.ok ? 'Connected. It said: ' + res.reply : res.error;
+      status.className = 'status ' + (res.ok ? 'good' : 'bad');
+    });
+  }
+
+  function applyBoot(res) {
+    state.boot = res;
+    $('name').textContent = res.name;
+    document.title = res.name;
+    $('input').placeholder = 'Message ' + res.name;
+    $('status').textContent = statusLine();
+  }
+
+  function autoGrow() {
+    var t = $('input');
+    t.style.height = 'auto';
+    if (!t.value) return;
+    t.style.height = Math.min(t.scrollHeight + 2, 160) + 'px';
+    t.style.overflowY = t.scrollHeight > 160 ? 'auto' : 'hidden';
+  }
+
+  // ---- Connections ----
+  function openConnections() {
+    $('connectionsPanel').hidden = false;
+    $('connectionForm').hidden = true;
+    $('connectionList').innerHTML = '<p class="sub">Loading…</p>';
+    call('api_listConnections').then(function (res) {
+      if (res.ok) renderConnections(res.connections);
+      else $('connectionList').innerHTML = '<p class="sub">' + esc(res.error) + '</p>';
+    });
+  }
+
+  function renderConnections(list) {
+    var box = $('connectionList');
+    box.innerHTML = '';
+    if (!list.length) { box.appendChild(el('p', 'sub', 'No connections yet. Add one.')); return; }
+    list.forEach(function (c) {
+      var row = el('div', 'conn-row');
+      var meta = el('div', 'meta', '<b>' + esc(c.name) + '</b><small>' + esc(c.base_url) + '</small>');
+      row.appendChild(meta);
+      row.appendChild(el('span', 'pill' + (c.enabled ? ' on' : ''), c.enabled ? 'on' : 'off'));
+      if (c.has_key) row.appendChild(el('span', 'pill', 'key saved'));
+      var edit = el('button', 'icon-btn', '<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>');
+      edit.type = 'button'; edit.title = 'Edit'; edit.onclick = function () { showConnectionForm(c); };
+      var del = el('button', 'icon-btn', '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>');
+      del.type = 'button'; del.title = 'Delete'; del.setAttribute('aria-label', 'Delete ' + c.name);
+      del.onclick = function () {
+        if (!confirm('Delete connection "' + c.name + '"?')) return;
+        call('api_deleteConnection', c.name).then(function (res) { if (res.ok) renderConnections(res.connections); });
+      };
+      row.appendChild(edit); row.appendChild(del);
+      box.appendChild(row);
+    });
+  }
+
+  function syncAuthName() {
+    $('authNameField').hidden = $('connectionForm').auth_type.value !== 'header';
+  }
+
+  function showConnectionForm(conn) {
+    var f = $('connectionForm');
+    f.hidden = false;
+    $('connTitle').textContent = conn ? 'Edit ' + conn.name : 'New connection';
+    f.name.value = conn ? conn.name : '';
+    f.name.readOnly = !!conn;
+    f.base_url.value = conn ? conn.base_url : '';
+    f.auth_type.value = conn ? conn.auth_type : 'none';
+    f.auth_name.value = conn ? conn.auth_name : '';
+    f.about.value = conn ? conn.about : '';
+    f.key.value = '';
+    f.enabled.checked = conn ? conn.enabled : true;
+    f.key.placeholder = conn && conn.has_key ? 'Leave blank to keep the saved key' : 'Paste the key';
+    $('connStatus').textContent = '';
+    syncAuthName();
+    f.name.focus();
+  }
+
+  function saveConnection(e) {
+    e.preventDefault();
+    var f = $('connectionForm');
+    if (!f.name.value.trim() || !f.base_url.value.trim()) {
+      $('connStatus').textContent = 'Name and base URL are required.';
+      $('connStatus').className = 'status bad';
+      return;
+    }
+    var conn = {
+      name: f.name.value.trim(), base_url: f.base_url.value.trim(), auth_type: f.auth_type.value,
+      auth_name: f.auth_name.value.trim(), about: f.about.value.trim(),
+      enabled: f.enabled.checked, key: f.key.value.trim()
+    };
+    $('connStatus').textContent = 'Saving…';
+    $('connStatus').className = 'status';
+    call('api_saveConnection', conn).then(function (res) {
+      if (!res.ok) { $('connStatus').textContent = res.error; $('connStatus').className = 'status bad'; return; }
+      f.hidden = true;
+      renderConnections(res.connections);
+    });
+  }
+
+  function init() {
+    var hours = $('setupForm').briefing_hour;
+    for (var h = 0; h < 24; h++) {
+      var o = document.createElement('option');
+      o.value = String(h);
+      o.textContent = (h % 12 || 12) + ':00 ' + (h < 12 ? 'am' : 'pm');
+      hours.appendChild(o);
+    }
+    $('composer').addEventListener('submit', function (e) { e.preventDefault(); send(); });
+    $('input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+    });
+    $('input').addEventListener('input', autoGrow);
+    $('chatsBtn').onclick = openChats;
+    $('setupBtn').onclick = openSetup;
+    $('newChatBtn').onclick = newChat;
+    $('setupForm').addEventListener('submit', saveSetup);
+    $('testBtn').onclick = testConnection;
+    $('learnNowBtn').onclick = learnNow;
+    $('forgetBtn').onclick = forgetLearned;
+    $('connectionsBtn').onclick = openConnections;
+    $('addConnectionBtn').onclick = function () { showConnectionForm(null); };
+    $('connCancel').onclick = function () { $('connectionForm').hidden = true; };
+    $('connectionForm').addEventListener('submit', saveConnection);
+    $('connectionForm').auth_type.addEventListener('change', syncAuthName);
+    document.querySelectorAll('input[name=provider]').forEach(function (r) { r.addEventListener('change', syncKeyFields); });
+    document.querySelectorAll('[data-close]').forEach(function (b) { b.onclick = closePanels; });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !(state.boot && !state.boot.hasKey[state.boot.provider])) closePanels();
+    });
+    state.speak = store('jarvis.speak') === '1';
+    $('speakBtn').setAttribute('aria-pressed', String(state.speak));
+    $('speakBtn').hidden = !window.speechSynthesis;
+    $('speakBtn').onclick = function () {
+      state.speak = !state.speak;
+      store('jarvis.speak', state.speak ? '1' : '0');
+      this.setAttribute('aria-pressed', String(state.speak));
+      if (!state.speak && window.speechSynthesis) speechSynthesis.cancel();
+    };
+    setupMic();
+    render();
+
+    setBusy(true, 'Starting up…');
+    call('api_bootstrap').then(function (res) {
+      setBusy(false);
+      if (!res.ok) {
+        $('status').textContent = 'Could not start';
+        $('thread').innerHTML = '';
+        $('thread').appendChild(el('div', 'error', esc(res.error)));
+        return;
+      }
+      applyBoot(res);
+      if (!res.hasKey[res.provider]) { openSetup(); return; }
+      var last = store('jarvis.chat');
+      if (last && res.chats.some(function (c) { return c.id === last; })) openChat(last);
+      else render();
+    });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
