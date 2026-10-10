@@ -38,6 +38,9 @@ jobs:
             timeout 60 python -c "import ${f%.py}"
           done
 
+      - name: Run the tests
+        run: python -m unittest -v
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

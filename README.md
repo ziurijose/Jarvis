@@ -80,6 +80,9 @@ way (no admin password), and works the same, with these differences:
 - **Thinking:** Claude streams its answer, and JARVIS starts speaking at the first sentence.
   With Claude Code, one session is started when JARVIS starts and kept open, instead of a new one
   for every request.
+- **Simple commands skip Claude:** "pause", "next song", "volume 40", "open Spotify", "close
+  Chrome", "google pasta recipes", "what time is it" and the like are done by JARVIS itself, at
+  once and without using your Claude plan or credit (`quick.py`). Anything more goes to Claude.
 - **Voice:** [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) speaks on your Mac, each sentence
   playing while the next is generated.
 

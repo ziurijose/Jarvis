@@ -6,6 +6,8 @@ Two ways to reach Claude:
   CliBrain  - Claude Code on this computer, signed in with your Claude account, so it uses your
               Claude plan. It is started once and kept running, so a request costs no start-up.
 Both stream: JARVIS starts speaking at the first sentence, while the rest is still being written.
+Simple commands ("pause", "volume 40", "open Spotify", quick.py) never reach Claude: JARVIS does
+them itself, at once and for free.
 make_brain() picks the API when a key is saved, else Claude Code, else None.
 """
 import base64
@@ -22,6 +24,7 @@ import threading
 import time
 import webbrowser
 import control
+import quick
 import recall
 
 IS_MAC = sys.platform == 'darwin'
@@ -327,7 +330,8 @@ NEEDS_HEARD = {'send_message', 'send_email'}  # they check the user's own last w
 MOUSE_AND_KEYS = {'move_mouse', 'click', 'mouse_down', 'mouse_up', 'drag', 'scroll', 'type_text',
                   'press_keys', 'key_down', 'key_up', 'hold_keys'}
 SKIPPED = 'Not run: an earlier action in this reply failed. Look at the screen before trying again.'
-MAX_STEPS = 25  # rounds of actions per request; look, act, check tasks take many
+MAX_STEPS = 15  # rounds of actions per request; look, act, check tasks take several, and each
+                # look sends a screenshot, so a stuck task stops before it gets expensive
 
 
 def run_tool(name, args, heard=''):
@@ -399,6 +403,9 @@ def system_prompt(settings):
         'one short line when you start a longer task and one when it is finished, not every step. Keys '
         'and mouse buttons you hold are let go when you finish answering. If an action says Stopped, the '
         'user stopped you: stop at once and say so.',
+        'Each look at the screen costs time, so prefer a direct way when there is one: to find or play '
+        'something on YouTube or another site, open its search results (search, or open_website with the '
+        'address) instead of clicking through the browser, then look once to pick a result.',
         f'Call the user {user} now and then, not in every reply. Your name is {name}; say it only if they '
         'ask for it, since hearing it can make you stop talking.',
     ]
@@ -413,9 +420,49 @@ def now_note():
     return datetime.datetime.now().strftime('[%A %d %B %Y, %H:%M]')
 
 
+# ---- simple commands, without Claude ------------------------------------------------------
+
+def answer_locally(text, settings):
+    """Does a simple command (quick.py) itself. Returns what to say, or None to ask Claude
+    (not a simple command, or the action failed and Claude may explain or find another way)."""
+    found = quick.match(text, IS_MAC, [settings.get('assistant_name')])
+    if not found:
+        return None
+    result = ''
+    if found.tool:
+        result, error = run_tool(found.tool, found.args, text)
+        if error:
+            print(f'{result} Asking Claude instead.')
+            return None
+    return found.reply(result)
+
+
+class Brain:
+    """What both brains share: simple commands are done here without asking Claude, and
+    Claude hears about them with the next request so the conversation still makes sense."""
+    done_locally = ()
+
+    def _locally(self, text, speech):
+        said = answer_locally(text, self.settings)
+        if said is not None:
+            print('(done without Claude)')
+            speech.feed(said)
+            self.ended = False
+            self.done_locally = (*self.done_locally, f'"{text}" (you answered "{said}")')
+        return said
+
+    def _local_note(self):
+        """The simple commands since Claude last heard from the user, to put before the request."""
+        if not self.done_locally:
+            return ''
+        note = 'Done by JARVIS itself since your last reply: ' + '; '.join(self.done_locally) + '\n'
+        self.done_locally = ()
+        return note
+
+
 # ---- Claude through the API ---------------------------------------------------------------
 
-class ApiBrain:
+class ApiBrain(Brain):
     name = 'Claude API'
     broken = False  # the key was refused or is out of credit
     ended = False   # the last reply closed the conversation (Claude wrote END)
@@ -440,17 +487,21 @@ class ApiBrain:
     def handle(self, text, speech, interrupted):
         """Answers text, feeding the spoken reply to speech. Returns what was said, and sets
         self.ended when Claude closed the conversation. Raises Sleep to quit JARVIS."""
+        said = self._locally(text, speech)
+        if said is not None:
+            return said
         try:
             return self._handle(text, speech, interrupted)
         finally:
             control.release_all()
 
     def _handle(self, text, speech, interrupted):
+        note = self._local_note()  # this conversation's (the last one's were cleared when it ended)
         if time.time() - self.last_used > FRESH_AFTER:
             self.forget_conversation()
         self.last_used = time.time()
         self.ended = False
-        self.messages.append({'role': 'user', 'content': f'{now_note()} {text}'})
+        self.messages.append({'role': 'user', 'content': f'{note}{now_note()} {text}'})
         self.heard = text
         spoken = Spoken(speech)
         bad_json = 0
@@ -506,6 +557,7 @@ class ApiBrain:
     def forget_conversation(self):
         """Starts a new conversation: Claude no longer sees the last one (recall.py has it)."""
         self.messages = []                          # a new conversation, never an edited one
+        self.done_locally = ()
         self.system = system_prompt(self.settings)  # picks up newly remembered facts
 
     def problem(self, error):
@@ -590,7 +642,7 @@ def parse_actions(text):
     return actions
 
 
-class CliBrain:
+class CliBrain(Brain):
     """Claude Code, started once and kept running in streaming mode. The old way started a
     new Claude Code for every request and waited for its whole answer (about 6 seconds
     before JARVIS said anything). Now the conversation stays open, the answer is spoken as it
@@ -736,11 +788,14 @@ class CliBrain:
 
     def forget_conversation(self):
         """Starts a new conversation: a fresh Claude Code, started now in the background so it
-        is ready by the next "Hey Jarvis" (recall.py has the old conversation)."""
+        is ready by the next "Hey Jarvis" (recall.py has the old conversation). No warm-up
+        exchange this time: that was a whole request to Claude after every conversation, and
+        with Claude Code already running the next request doesn't need it."""
         with self.lock:
             self.unreported = []
+            self.done_locally = ()
             self.last_used = 0.0
-            self.starter = threading.Thread(target=self._start, daemon=True)
+            self.starter = threading.Thread(target=self._start, args=(False,), daemon=True)
             self.starter.start()
 
     def _turn(self, prompt, speech, interrupted):
@@ -788,6 +843,9 @@ class CliBrain:
                 spoken = len(said)
 
     def handle(self, text, speech, interrupted):
+        said = self._locally(text, speech)
+        if said is not None:
+            return said
         try:
             return self._handle(text, speech, interrupted)
         finally:
@@ -811,7 +869,7 @@ class CliBrain:
         self._ready()
         with self.lock:
             self.last_used = time.time()
-            prompt = f'{now_note()} {text}'
+            prompt = f'{self._local_note()}{now_note()} {text}'
             if self.unreported:
                 prompt = 'Results of your last actions: ' + json.dumps(self.unreported) + '\n' + prompt
                 self.unreported = []
