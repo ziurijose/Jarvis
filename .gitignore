@@ -165,3 +165,6 @@ Face-Recognition/trainer/
 # Past conversations and their search index
 conversations.jsonl
 recall_index.npy
+
+# Windows shortcuts point at one PC's paths
+*.lnk
