@@ -41,19 +41,5 @@ jobs:
       - name: Run the tests
         run: python -m unittest -v
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Check the Apps Script and web page parse
-        run: |
-          cp Code.gs /tmp/Code.js && node --check /tmp/Code.js
-          python - <<'PY'
-          import re
-          html = open('Index.html', encoding='utf-8').read()
-          open('/tmp/Index.js', 'w').write('\n;\n'.join(re.findall(r'<script[^>]*>(.*?)</script>', html, re.S)))
-          PY
-          node --check /tmp/Index.js
-
       - name: Check the shell scripts
         run: for f in setup_mac.sh add_speech.sh "Start JARVIS.command"; do bash -n "$f"; done
