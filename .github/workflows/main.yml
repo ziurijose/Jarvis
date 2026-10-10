@@ -10,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +28,6 @@ jobs:
 
       - name: Install JARVIS's packages (the ones that install on Linux)
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-tk libportaudio2
           grep -vE '^(rumps|pyobjc)' requirements-mac.txt > /tmp/requirements-ci.txt
           pip install -r /tmp/requirements-ci.txt
 
@@ -35,7 +35,7 @@ jobs:
         run: |
           for f in *.py; do
             echo "import ${f%.py}"
-            python -c "import ${f%.py}"
+            timeout 60 python -c "import ${f%.py}"
           done
 
       - uses: actions/setup-node@v4
