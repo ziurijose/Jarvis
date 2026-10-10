@@ -25,6 +25,14 @@ listening, the face lock and start-up options. **Save** restarts JARVIS so the c
 effect. It answers to any name you give it, short ones like "Max" included, and "Hey Jarvis"
 keeps working too.
 
+## On your phone
+
+`phone/jarvis-phone.html` is a phone version, published as a claude.ai page: open it in your
+phone's browser while signed in to claude.ai. Type, or tap the box and use your keyboard's
+microphone; it answers out loud, sets timers, shows a button for searches and videos, and
+remembers things about you. It uses your Claude plan, needs no API key, and can't control the
+phone's own apps. Timers only ring while the page is open.
+
 ## On Windows
 
 Double-click **Start JARVIS.bat** ("START HERE (Windows).txt" has the steps). It installs the same
