@@ -1,0 +1,17 @@
+pyttsx3
+SpeechRecognition
+sounddevice
+opencv-contrib-python
+numpy
+Pillow
+pywebview
+psutil
+pyautogui
+requests
+yt-dlp
+setuptools
+anthropic>=1.0
+rumps
+pynput
+pyobjc-framework-EventKit
+pyperclip

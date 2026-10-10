@@ -1,0 +1,18 @@
+{
+  "user_name": "Jose",
+  "assistant_name": "Jarbungus",
+  "voice": {
+    "source": "kokoro",
+    "id": "af_heart",
+    "name": "Heart (American)",
+    "language": "en-us"
+  },
+  "anthropic_api_key": "",
+  "face_lock": false,
+  "claude_effort": "low",
+  "wake_word": true,
+  "barge_in": true,
+  "menu_bar": true,
+  "face_lock_threshold": 80,
+  "claude_model": "claude-haiku-5-5"
+}

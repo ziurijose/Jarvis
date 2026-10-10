@@ -1,0 +1,44 @@
+JARVIS - voice assistant for your Windows PC
+=============================================
+
+1. Unzip this folder somewhere you'll keep it (for example, Documents).
+
+2. Double-click "Start JARVIS.bat".
+   The first time, a window installs what JARVIS needs, including its speech recognition
+   and natural voice (about 800 MB). This takes a few minutes and needs internet, but no
+   admin password.
+
+   If Windows says "Windows protected your PC": click "More info", then "Run anyway".
+
+3. A setup window appears. Type your name, pick a name for your assistant, choose its voice,
+   then let it scan your face. That scan is the face lock: JARVIS starts only for you.
+
+4. JARVIS asks once for a Claude API key in the black window. Paste one for the fastest
+   answers (https://platform.claude.com/settings/keys, needs API credit), or press Enter to
+   use Claude Code with your Claude account instead (https://claude.com/claude-code).
+
+5. Face the camera. JARVIS greets you. Then just say "Hey" and its name (the one you picked,
+   or "Jarvis") and what you want, in one breath: "Hey Jarvis, what's the weather tomorrow?"
+
+Talking to JARVIS
+-----------------
+  Say anything, the way you'd say it to a person. Claude works out what you mean.
+    "Hey Jarvis, open Spotify and turn the volume down to 30"
+    "Hey Jarvis, what's on my screen?"
+    "Hey Jarvis, remind me to call Mum at 6"            (it says the reminder out loud then)
+    "Hey Jarvis, make a note: ideas for the trip..."     (saved in Documents\JARVIS Notes)
+    "Hey Jarvis, write an email to sam@example.com..."   (opens a draft; you press Send)
+    "Hey Jarvis, remember that my sister's birthday is June 3rd"
+  If JARVIS asks you something, just answer: no need to say its name again.
+  To interrupt it, just talk over it, or say "Hey Jarvis", or press Ctrl+Alt+J.
+  JARVIS's icon sits in the system tray by the clock: Talk, Start when I sign in, Show log, Quit.
+  "Hey Jarvis, goodbye" closes JARVIS.
+
+Microphone
+----------
+  JARVIS listens on Windows' default microphone (Settings > System > Sound > Input). If that
+  one hears nothing, it picks a microphone that does and says which in the window. To choose
+  one yourself, add  "microphone": "part of its name"  to user_settings.json.
+
+To start again later, double-click "Start JARVIS.bat".
+To set it up for someone else, delete "user_settings.json" and start it again.
