@@ -5,6 +5,7 @@ import threading
 import time
 import types
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -98,6 +99,18 @@ class SoundDevicePlayback(unittest.TestCase):
         threading.Timer(0.1, stopped.set).start()
         start = time.monotonic()
         playback.play(np.zeros(24000 * 60, dtype=np.float32), 24000, stopped=stopped)
+        self.assertLess(time.monotonic() - start, 2)
+
+    def test_a_stalled_device_does_not_hang_forever(self):
+        class Stalled(FakeOutputStream):
+            def _run(self):
+                self.aborted.wait()  # never calls back, never finishes, until aborted
+
+        sd.OutputStream = Stalled
+        self.addCleanup(setattr, sd, 'OutputStream', FakeOutputStream)
+        with mock.patch.object(playback, 'STALL_SECONDS', 0.3):
+            start = time.monotonic()
+            playback.play(np.zeros(2400, dtype=np.float32), 24000)  # a 0.1 s sound
         self.assertLess(time.monotonic() - start, 2)
 
     def test_formats_become_ones_portaudio_plays(self):

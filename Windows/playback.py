@@ -33,6 +33,7 @@ _turn = threading.Lock()  # sounddevice sounds play one at a time; the next wait
 _stops = 0              # how many times stop() has run; a sound playing when it changes ends
 _sounding = []          # sounds playing (or just played), for output_level()
 HOP = 0.02              # output_level() resolution, in seconds
+STALL_SECONDS = 5       # how long past its length a sound may take before the device counts as stuck
 
 
 def _pcm16(samples):
@@ -181,7 +182,12 @@ def _sounddevice(samples, rate, stopped) -> None:
         try:
             with sd.OutputStream(samplerate=rate, channels=audio.shape[1], dtype=audio.dtype,
                                  callback=fill, finished_callback=finished.set) as stream:
+                limit = time.monotonic() + len(audio) / rate + STALL_SECONDS
                 while not finished.wait(0.03):
+                    if time.monotonic() > limit:
+                        print('The speaker stopped responding; skipping the rest of this sound.')
+                        stream.abort()
+                        return
                     if (stopped is not None and stopped.is_set()) or _stops != stops:
                         stream.abort()
                         return
