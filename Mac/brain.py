@@ -1226,6 +1226,7 @@ class LocalBrain(Brain):
                            timeout=(5, 300)) as response:
             if response.status_code >= 400:
                 raise LocalProblem(self._http_problem(response))
+            response.encoding = 'utf-8'  # servers omit the charset, and requests would guess Latin-1
             for line in response.iter_lines(decode_unicode=True):
                 if interrupted.is_set():
                     return None, None
