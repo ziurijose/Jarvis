@@ -44,34 +44,40 @@ brain, tools, memory and quick commands), with no microphone, menu bar or orb. A
 hear the answers too. Ctrl+C stops an answer; `exit` quits. Run Start JARVIS once first, so it's
 installed.
 
-## A free model on your computer
+## The brain: a free model on your computer, Claude when needed
 
-JARVIS can think with a free model running on your own computer instead of Claude. Nothing goes
-to the internet and nothing is billed; it's slower and less clever than Claude on long tasks.
+JARVIS thinks with a free model running on your own computer, through
+[TurboLLM](https://github.com/mohitsoni48/TurboLLM). Claude Code (signed in with your Claude
+account) takes over only when it has to: while the local model is getting ready, if it stops or
+fails, or when a request is beyond it (long tasks on the screen, careful reasoning, code), which
+it decides itself. You can't hear the difference: both get the same personality and rules,
+JARVIS's own voice speaks for both, nothing announces a switch, and each one knows what the other
+said.
 
-The quickest way, from a terminal in the JARVIS folder:
+**First start** (needs [Node.js](https://nodejs.org) 22.13 or newer): JARVIS starts TurboLLM in
+the background, checks your graphics card's memory, and downloads the fastest model it runs well
+that can also see the screen and use JARVIS's tools:
 
-    .venv\Scripts\python.exe jarvis.py --text --local      (Windows; leave out --text to talk)
-    .venv/bin/python jarvis.py --text --local              (Mac)
+| Graphics memory | Model | |
+| --- | --- | --- |
+| 22 GB or more | Gemma 4 26B-A4B (4-bit) | only 4B of its 26B run per word: fast, and smarter |
+| 7 to 22 GB | Gemma 4 E4B (4-bit) | about 4.5B: very fast |
+| less, or none | Gemma 4 E4B (3-bit) | |
 
-`--local` uses whichever local model server is running, looking for
-[TurboLLM](https://github.com/mohitsoni48/TurboLLM) first, then LM Studio, then Ollama. If none
-is, it starts TurboLLM itself (that needs [Node.js](https://nodejs.org) 22.13 or newer). It picks
-the fastest model you have that's big enough to use JARVIS's tools well (3 billion parameters or
-more) and says which one when it starts.
+On an AMD Radeon it times both of TurboLLM's engines, ROCm and Vulkan, and keeps the quicker
+(not every Radeon runs ROCm well). This takes a few minutes once (the model is 5 to 7 GB); Claude
+Code answers in the meantime. Later starts take seconds.
 
-The first time, get a model: run `npx turbollm`, and in the window that opens, download the model
-its setup suggests for your graphics card. Pick one that can see images (a "vision" model), so
-JARVIS can read search results off the screen.
+To look something up, the local model opens the search results in your browser and reads them
+off the screen, scrolling and clicking like you would.
 
-To use the local model every time, add `"brain": "local"` to `user_settings.json` instead of
-typing `--local`. Other optional settings: `"local_model"` (a model by name, instead of the
-fastest), `"local_url"` (a server address, e.g. LM Studio's `http://localhost:1234/v1`),
-`"local_vision": false` for a model that can't see images, and `"local_api_key"` if the server is
-shared on your network with a key.
-
-To look something up, it opens the search results in your browser and reads them off the screen,
-scrolling and clicking like you would. If the local server stops, JARVIS switches to Claude Code.
+**Choosing:** `"brain"` in `user_settings.json` is `"auto"` (the default, as above), `"local"`
+(only the local model, never Claude) or `"claude"` (only Claude: Claude Code, or the API with
+`anthropic_api_key`). For one run, start JARVIS with `--local` or `--claude`. Other optional
+settings: `"local_model"` (a model by name instead), `"local_url"` (another server, such as LM
+Studio's `http://localhost:1234/v1` or Ollama's `http://localhost:11434/v1`), `"local_vision":
+false` for a model that can't see images, and `"local_api_key"` if the server is shared with a
+key. JARVIS writes `"local_backend"` (the engine it chose); delete it to time the engines again.
 
 ## On your phone
 
@@ -144,9 +150,9 @@ way (no admin password), and works the same, with these differences:
 
 ## Claude
 
-JARVIS uses [Claude Code](https://claude.com/claude-code) signed in with your Claude account, or
-a Claude API key if you saved one (`anthropic_api_key` in `user_settings.json`; API use is billed
-to your Console account). If the API key stops working, it switches to Claude Code by itself.
+When JARVIS needs Claude (see "The brain" above), it uses [Claude Code](https://claude.com/claude-code)
+signed in with your Claude account, or a Claude API key if you saved one and Claude Code isn't
+installed (`anthropic_api_key` in `user_settings.json`; API use is billed to your Console account).
 
 ## Settings (`user_settings.json`)
 

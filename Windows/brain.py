@@ -8,9 +8,9 @@ Two ways to reach Claude:
 Both stream: JARVIS starts speaking at the first sentence, while the rest is still being written.
 Simple commands ("pause", "volume 40", "open Spotify", quick.py) never reach Claude: JARVIS does
 them itself, at once and for free.
-  LocalBrain - a free model on this computer, through TurboLLM, LM Studio or Ollama ("brain": "local").
-make_brain() picks the local model when chosen, else the API when a key is saved, else Claude
-Code, else None.
+  LocalBrain - a free model on this computer, through TurboLLM, LM Studio or Ollama.
+  HybridBrain - the default: the local model, with Claude Code taking over only when needed.
+make_brain() picks by "brain" in user_settings.json (see there).
 """
 import base64
 import datetime
@@ -658,7 +658,8 @@ class CliBrain(Brain):
     name = 'Claude Code'
     ended = False   # the last reply closed the conversation (Claude wrote END)
 
-    def __init__(self, claude_path, settings):
+    def __init__(self, claude_path, settings, warm=True):
+        """warm: also send a first message now (a request), so the first real one is quicker."""
         self.claude = claude_path
         self.settings = settings
         self.process = None
@@ -676,7 +677,7 @@ class CliBrain(Brain):
                                           '(screenshot pixels) saves that part zoomed in, for small text. '
                                           'Args: {"region": [x0, y0, x1, y1]}')
         # Start now (in the background), so the first request doesn't wait for it.
-        self.starter = threading.Thread(target=self._start, daemon=True)
+        self.starter = threading.Thread(target=self._start, args=(warm,), daemon=True)
         self.starter.start()
 
     def _supported(self):
@@ -917,12 +918,12 @@ class CliBrain(Brain):
         return f'Claude Code had a problem: {str(error)[:120]}' if isinstance(error, RuntimeError) else None
 
 
-def cli_brain(settings):
+def cli_brain(settings, warm=True):
     """Claude Code, if it is installed."""
     claude = shutil.which('claude') or next((p for p in (os.path.expanduser('~/.local/bin/claude'),
                                                          os.path.expanduser('~/.claude/local/claude'))
                                              if os.path.exists(p)), None)
-    return CliBrain(claude, settings) if claude else None
+    return CliBrain(claude, settings, warm) if claude else None
 
 
 # ---- a free model on this computer ------------------------------------------------------
@@ -937,8 +938,9 @@ SMALLEST_USEFUL = 3  # billion parameters: smaller models fumble JARVIS's tools
 
 def model_size(name):
     """Billions of parameters a model uses per word, from its name ("qwen3-8b" -> 8; a mixture
-    of experts like "30b-a3b" -> 3, the part that runs), or None if the name doesn't say."""
-    active = re.search(r'(?<![\d.])a(\d+(?:\.\d+)?)b(?![a-z])', name, re.I)
+    of experts like "30b-a3b" -> 3, the part that runs; Gemma's "e4b" -> 4, its effective size),
+    or None if the name doesn't say."""
+    active = re.search(r'(?<![\d.a-z])[ae](\d+(?:\.\d+)?)b(?![a-z])', name, re.I)
     total = re.findall(r'(?<![\d.a-z])(\d+(?:\.\d+)?)b(?![a-z])', name, re.I)
     if active:
         return float(active.group(1))
@@ -987,6 +989,143 @@ def start_turbollm(wait=120):
     return None
 
 
+# The model JARVIS downloads into TurboLLM: the fastest that sees images and uses tools well, for
+# the graphics memory this computer has. (least memory in MB, Hugging Face repo, file)
+LOCAL_MODELS = (
+    (22 * 1024, 'unsloth/gemma-4-26B-A4B-it-GGUF', 'gemma-4-26B-A4B-it-UD-Q4_K_M.gguf'),  # 4B of 26B run per word
+    (7 * 1024, 'unsloth/gemma-4-E4B-it-GGUF', 'gemma-4-E4B-it-Q4_K_M.gguf'),
+    (0, 'unsloth/gemma-4-E4B-it-GGUF', 'gemma-4-E4B-it-Q3_K_M.gguf'),
+)
+
+
+def graphics_memory(sysinfo):
+    """Megabytes of graphics memory a model can use: the biggest graphics card's, or about two
+    thirds of a Mac's shared memory; 0 with no graphics card."""
+    gpus = sysinfo.get('gpus') or []
+    own = [g.get('vramMb') or 0 for g in gpus if not g.get('unified')]
+    if own:
+        return max(own)
+    return int((sysinfo.get('ramMB') or 0) * 0.65) if gpus else 0
+
+
+def model_for(memory_mb):
+    """(repo, file) of the model for this much graphics memory."""
+    return next((repo, file) for least, repo, file in LOCAL_MODELS if memory_mb >= least)
+
+
+def _matches(model_id, file):
+    """Whether TurboLLM's name for a model ("gemma-4-e4b-it|Q4_K_M|4977171584") is that file."""
+    stem, quant = re.match(r'(.+?)-(?:UD-)?(I?Q\d\w*)\.gguf$', file, re.I).groups()
+    name, _, rest = model_id.partition('|')
+    return name.lower() == stem.lower() and quant.lower() in rest.lower()
+
+
+class TurboSetup:
+    """First-time setup on TurboLLM, run in the background: downloads the model for this
+    computer's graphics memory (LOCAL_MODELS) and puts it on the fastest engine. On an AMD card
+    TurboLLM prefers ROCm, which not every Radeon runs well, so ROCm and Vulkan are both timed
+    and the quicker one is kept ("local_backend" in user_settings.json). Later starts only check."""
+
+    def __init__(self, url, settings, headers=None, save=None):
+        self.url, self.settings, self.headers = url, settings, headers or {}
+        self.api = url[:-len('/v1')] if url.endswith('/v1') else url
+        if save is None:
+            import user_settings
+            save = user_settings.update_settings
+        self.save = save
+
+    def _call(self, method, path, body=None, timeout=30):
+        import requests
+        response = requests.request(method, self.api + path, json=body, headers=self.headers, timeout=timeout)
+        response.raise_for_status()
+        return response.json() if response.content else {}
+
+    def run(self):
+        """Returns the name of the model to use."""
+        memory = graphics_memory(self._call('GET', '/api/v1/sysinfo'))
+        repo, file = model_for(memory)
+        model = self._model_id(file) or self._download(repo, file)
+        self._engine(model)
+        print(f'Local model: {file} ({memory / 1024:.0f} GB of graphics memory)')
+        return model
+
+    def _model_id(self, file):
+        listed = self._call('GET', '/v1/models').get('data', [])
+        return next((m['id'] for m in listed if _matches(m.get('id', ''), file)), None)
+
+    def _download(self, repo, file):
+        print(f'Downloading the local model, {file} (once, a few GB)...')
+        started = self._call('POST', '/api/v1/downloads', {'repo': repo, 'rfilename': file}, timeout=120)
+        ids = {d['id'] for d in started.get('downloads', [])}
+        shown = 0
+        while True:
+            mine = [d for d in self._call('GET', '/api/v1/downloads').get('downloads', [])
+                    if d.get('id') in ids or (not ids and d.get('name') == file)]
+            failed = [d for d in mine if d.get('status') in ('error', 'cancelled')]
+            if failed:
+                raise LocalProblem(f"Couldn't download {file}: {failed[0].get('error') or 'cancelled'}")
+            if mine and all(d.get('status') == 'done' for d in mine):
+                break
+            if time.time() - shown > 30:
+                got, total = sum(d.get('received') or 0 for d in mine), sum(d.get('total') or 0 for d in mine)
+                print(f'  {file}: {100 * got // max(total, 1)}%')
+                shown = time.time()
+            time.sleep(2)
+        for _try in range(30):
+            model = self._model_id(file)
+            if model:
+                return model
+            time.sleep(1)
+        raise LocalProblem(f"{file} downloaded, but TurboLLM doesn't list it.")
+
+    def _backends(self):
+        return self._call('GET', '/api/v1/engines/backends')
+
+    def _engine(self, model):
+        backends = self._backends()
+        choice = self.settings.get('local_backend')
+        if not choice:
+            offered = {b['id'] for b in backends.get('backends', [])}
+            race = [b for b in ('rocm', 'vulkan') if b in offered] if backends.get('vendor') == 'amd' else []
+            if len(race) > 1 and backends.get('recommended') in race:
+                speeds = {b: self._speed(b, model) for b in race}
+                print('Engine speed, words per second: ' + ', '.join(f'{b} {s:.0f}' for b, s in speeds.items()))
+                choice = max(speeds, key=speeds.get) if max(speeds.values()) > 0 else backends.get('recommended')
+            else:
+                choice = backends.get('recommended')
+            if choice:
+                self.save({'local_backend': choice})
+        if choice and choice != next((b['id'] for b in backends.get('backends', []) if b.get('active')), None):
+            self._use(choice)
+
+    def _use(self, backend, wait=1800):
+        """Makes backend the engine (installing it first if needed; the model reloads on it)."""
+        self._call('POST', '/api/v1/engine/stop')
+        self._call('POST', '/api/v1/engines/backends/install', {'backend': backend}, timeout=120)
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            state = next((b for b in self._backends().get('backends', []) if b['id'] == backend), {})
+            if state.get('installed') and state.get('active'):
+                return
+            time.sleep(2)
+        raise LocalProblem(f'The {backend} engine did not install.')
+
+    def _speed(self, backend, model):
+        """Words per second the model writes on this engine; 0 if it doesn't work here."""
+        try:
+            self._use(backend)
+            ask = {'model': model, 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hi'}]}
+            self._call('POST', '/v1/chat/completions', ask, timeout=600)  # loads the model
+            ask.update(max_tokens=64, temperature=0, messages=[{'role': 'user', 'content': 'Count from one to forty in words.'}])
+            began = time.time()
+            answer = self._call('POST', '/v1/chat/completions', ask, timeout=600)
+            measured = (answer.get('timings') or {}).get('predicted_per_second')
+            return measured or (answer.get('usage') or {}).get('completion_tokens', 0) / max(time.time() - began, 0.001)
+        except Exception as error:
+            print(f"The {backend} engine doesn't work on this computer ({error}).")
+            return 0
+
+
 # A local model can't search the web by itself, so it does what a person would: opens the
 # search results in the browser and reads them off the screen.
 LOCAL_RULES = '''
@@ -1013,7 +1152,8 @@ class LocalBrain(Brain):
     broken = False  # the server isn't running: jarvis.py switches to Claude Code if it can
     ended = False
 
-    def __init__(self, settings):
+    def __init__(self, settings, handoff=False):
+        """handoff: offer the ask_claude tool, for HybridBrain."""
         self.settings = settings
         self.url = (settings.get('local_url') or '').rstrip('/')  # '' = find one (LOCAL_SERVERS)
         self.server = next((name for name, url in LOCAL_SERVERS if url == self.url), 'the local server')
@@ -1021,6 +1161,10 @@ class LocalBrain(Brain):
         key = settings.get('local_api_key')  # only when the server asks for one (e.g. shared on a network)
         self.headers = {'Authorization': f'Bearer {key}'} if key else {}
         self.lock = threading.Lock()  # the warm-up and the first request may both look for the server
+        self.setup_lock = threading.RLock()  # a request waits for the first-time setup to finish
+        self.ready = threading.Event()  # the model is loaded and answering
+        self.handoff = handoff
+        self.acted = False  # a tool ran during the last request
         self.messages = []
         self.last_used = 0
         self.tools_by_name = dict(TOOLS)
@@ -1028,15 +1172,23 @@ class LocalBrain(Brain):
             self.tools_by_name.pop('look_at_screen', None)
         self.tools = [{'type': 'function', 'function': {'name': n, 'description': d, 'parameters': s}}
                       for n, (_f, d, s) in self.tools_by_name.items()]
+        if handoff:
+            self.tools.append(HANDOFF_TOOL)
         self.system = self._system()
-        # Load the model now, in the background, so the first request doesn't wait for it.
-        threading.Thread(target=self._warm_up, daemon=True).start()
+        self.warming = None
+        self.warm_up()
+
+    def warm_up(self):
+        """Gets the model ready in the background (finding or starting the server, the first-time
+        setup, loading the model), so a request doesn't wait for it."""
+        self.warming = threading.Thread(target=self._warm_up, daemon=True)
+        self.warming.start()
 
     def _system(self):
         sees = 'look_at_screen' in self.tools_by_name
         prompt = system_prompt(self.settings).replace(  # Claude's web_search isn't here
             'and web_search for anything current', 'and the search tool for anything current')
-        return prompt + (LOCAL_RULES if sees else NO_EYES)
+        return prompt + (LOCAL_RULES if sees else NO_EYES) + (HANDOFF_RULES if self.handoff else '')
 
     def _server(self):
         """The local server's address: local_url, else the first of LOCAL_SERVERS that answers,
@@ -1057,6 +1209,10 @@ class LocalBrain(Brain):
 
     def _model(self):
         """The model named in settings, else the fastest useful one the server has."""
+        with self.setup_lock:
+            return self._pick_model()
+
+    def _pick_model(self):
         if not self.model:
             import requests
             listed = requests.get(self._server() + '/models', headers=self.headers, timeout=5)
@@ -1070,10 +1226,19 @@ class LocalBrain(Brain):
     def _warm_up(self):
         try:
             import requests
-            model = self._model()
-            requests.post(self._server() + '/chat/completions', headers=self.headers, timeout=(5, 300), json={
-                'model': model, 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hi'}]})
-            print(f'Local model: {model} on {self.server}')
+            with self.setup_lock:
+                url = self._server()
+                if self.server == 'TurboLLM' and not self.settings.get('local_model'):
+                    self.model = TurboSetup(url, self.settings, self.headers).run()
+                model = self._pick_model()
+            # The same opening as every request (instructions and tools), so the server has read it
+            # before the first one arrives and only reads what's new each time.
+            loaded = requests.post(url + '/chat/completions', headers=self.headers, timeout=(5, 900), json={
+                'model': model, 'max_tokens': 1, 'tools': self.tools,
+                'messages': [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': 'Hi'}]})
+            loaded.raise_for_status()
+            self.ready.set()
+            print(f'Local model ready: {model} on {self.server}')
         except Exception as error:  # the first request reports it properly
             print(f'The local model is not ready yet ({error}).')
 
@@ -1092,6 +1257,7 @@ class LocalBrain(Brain):
             self.forget_conversation()
         self.last_used = time.time()
         self.ended = False
+        self.acted = False
         self.messages.append({'role': 'user', 'content': f'{note}{now_note()} {text}'})
         spoken = Spoken(speech)
         for _step in range(MAX_STEPS):
@@ -1112,6 +1278,10 @@ class LocalBrain(Brain):
 
     def _run_calls(self, calls, heard, spoken):
         images, failed = [], False
+        if any(call['name'] == 'ask_claude' for call in calls):
+            spoken.finish()
+            raise HandOff()
+        self.acted = True
         for call in calls:
             name = call['name']
             try:
@@ -1186,7 +1356,7 @@ class LocalBrain(Brain):
         return text, found
 
     def _http_problem(self, response):
-        detail = response.text[:300]
+        detail = re.sub(r'\s+', ' ', re.sub(r'(?s)<[^>]+>', ' ', response.text)).strip()[:300]  # an HTML page -> text
         if response.status_code == 404 or 'not found' in detail.lower():
             return (f"The model {self.model} isn't available on {self.server}. Download it there, or set "
                     'local_model in user_settings.json to one you have.')
@@ -1210,6 +1380,7 @@ class LocalBrain(Brain):
         import requests
         if isinstance(error, requests.ConnectionError):
             self.broken = True
+            self.ready.clear()
             return f"I can't reach {self.server}. Start it again (TurboLLM: npx turbollm)."
         if isinstance(error, requests.Timeout):
             return 'The local model took too long to answer.'
@@ -1218,18 +1389,186 @@ class LocalBrain(Brain):
         return None
 
 
+class HandOff(Exception):
+    """The local model passed a request to Claude (its ask_claude tool)."""
+
+
+HANDOFF_TOOL = {'type': 'function', 'function': {'name': 'ask_claude', 'parameters': _schema({'reason': S}),
+                'description': 'Pass this request to a stronger assistant on this computer with the same tools, '
+                               'which answers the user for you, in your voice. Call it first, before writing '
+                               'anything, and never mention it.'}}
+HANDOFF_RULES = '''
+When a request is beyond you (a long task on the screen, careful reasoning, writing or fixing
+code, or your tools keep failing), call ask_claude straight away, before writing anything. Never
+say you're passing it on or that it's too hard: it answers the user for you, in your voice.'''
+TAKE_OVER = ("(JARVIS's quicker on-device model couldn't finish this request, so it's yours. The user hears "
+             "one assistant, so just answer; never mention a handover.{already}) ")
+
+
+# What the local model may say about handing a request over, which the user must never hear.
+HANDOVER_TALK = re.compile(r"\b(claude|(stronger|other|better|bigger|more capable) (assistant|model|ai)|"
+                           r"hand(ing)? (it|this|that)( request)? (over|off|on)|pass(ing)? (it|this|that) (on|over|along)|"
+                           r"(too|a bit too|very) (complex|complicated|hard|difficult|advanced) for me|beyond (me|my))\b", re.I)
+
+
+class _Heard:
+    """The local model's speech, a sentence at a time: a sentence about handing the request over
+    is dropped, the rest is spoken, and what was said is kept so Claude can carry on from it."""
+    SENTENCE = re.compile(r'.+?(?:[.!?…]+\s+|\n)', re.S)  # with the space after it
+
+    def __init__(self, speech):
+        self.speech, self.said, self.waiting = speech, '', ''
+
+    def feed(self, text):
+        self.waiting += text
+        end = 0
+        for sentence in self.SENTENCE.finditer(self.waiting):
+            self._say(sentence.group())
+            end = sentence.end()
+        self.waiting = self.waiting[end:]
+
+    def flush(self):
+        self._say(self.waiting)
+        self.waiting = ''
+
+    def _say(self, sentence):
+        if sentence.strip() and not HANDOVER_TALK.search(sentence):
+            self.said += sentence
+            self.speech.feed(sentence)
+
+
+class HybridBrain(Brain):
+    """The default brain: the free local model answers, and Claude Code (or the Claude API, with a
+    key) takes over only when it has to: while the local model is getting ready or has stopped,
+    when it fails or says nothing, or when it hands a request over itself (ask_claude). Both
+    get the same persona and rules, JARVIS speaks for both in the same voice, nothing announces
+    a switch, and each one hears what the other said, so a handover can't be heard."""
+    name = 'Local model (Claude when needed)'
+    broken = False
+    ended = False
+    RETRY = 300  # seconds before trying a stopped local model again
+
+    def __init__(self, settings, backup=None):
+        self.settings = settings
+        self.local = LocalBrain(settings, handoff=True)
+        self.backup = backup if backup is not None else self._make_backup(settings)
+        self.tried = time.time()
+
+    @staticmethod
+    def _make_backup(settings):
+        claude = cli_brain(settings, warm=False)  # started now, but asked nothing until it's needed
+        if claude is None and settings.get('anthropic_api_key'):
+            try:
+                claude = ApiBrain(settings['anthropic_api_key'], settings)
+            except ImportError:
+                pass
+        return claude
+
+    def handle(self, text, speech, interrupted):
+        self.ended = False
+        if not self.local.ready.is_set():
+            self._revive_local()
+            if self.backup:
+                return self._by_claude(text, speech, interrupted)
+        start = len(self.local.messages)
+        heard = _Heard(speech)
+        try:
+            self.local.handle(text, heard, interrupted)
+        except HandOff:
+            heard.flush()
+            return self._by_claude(text, speech, interrupted, heard.said, start)
+        except Sleep:
+            heard.flush()
+            raise
+        except Exception as error:
+            heard.flush()
+            if interrupted.is_set():
+                return heard.said
+            print(f'The local model failed ({self.local.problem(error) or error}).')
+            self.local.broken = False  # this brain decides what happens next
+            if not self.backup:
+                raise
+            return self._by_claude(text, speech, interrupted, heard.said, start)
+        heard.flush()
+        said = heard.said
+        if not said.strip() and not self.local.acted and not interrupted.is_set() and self.backup:
+            return self._by_claude(text, speech, interrupted, '', start)
+        self.ended = self.local.ended
+        if self.backup and said.strip():
+            self.backup.done_locally = (*self.backup.done_locally, f'"{text}" (you answered "{said.strip()}")')
+        return said
+
+    def _by_claude(self, text, speech, interrupted, already='', start=None):
+        if start is not None:
+            del self.local.messages[start:]  # the local model's unfinished try
+        if not self.backup:
+            speech.feed("Sorry, I can't manage that one right now.")
+            return already
+        prompt = text
+        if already and not already[-1].isspace():
+            speech.feed(' ')  # between the local model's last words and Claude's first
+        if start is not None:
+            carry_on = f' You have already said: "{already.strip()}". Carry on from there.' if already.strip() else ''
+            prompt = TAKE_OVER.format(already=carry_on) + text
+        said = self.backup.handle(prompt, speech, interrupted)
+        self.ended = self.backup.ended
+        whole = f'{already.rstrip()} {said.lstrip()}' if already.strip() else said
+        if whole.strip():  # so the local model knows, next time
+            self.local.messages += [{'role': 'user', 'content': f'{now_note()} {text}'},
+                                    {'role': 'assistant', 'content': whole.strip()}]
+            self.local.last_used = time.time()
+        return whole
+
+    def _revive_local(self):
+        """Tries the local model again in the background if it stopped (at most every RETRY s)."""
+        if (self.local.warming is None or not self.local.warming.is_alive()) and time.time() - self.tried > self.RETRY:
+            self.tried = time.time()
+            self.local.warm_up()
+
+    def forget_conversation(self):
+        self.done_locally = ()
+        self.local.forget_conversation()
+        if self.backup:
+            self.backup.forget_conversation()
+
+    def problem(self, error):
+        for brain_ in (self.backup, self.local):
+            message = brain_.problem(error) if brain_ else None
+            if message:
+                return message
+        return None
+
+
+# A time stamp a small model sometimes copies to the start of its reply, from the one on each
+# message: "2026-10-12T13:58:00-04:00" or "[Monday 12 October 2026, 13:58]".
+TIME_STAMP = re.compile(r'(?m)^[ \t]*\[?\d{4}-\d{2}-\d{2}(?:[T ]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)?'
+                        r'(?:Z|[+-]\d{2}:?\d{2})?\]?[ \t]*|\[[A-Z][a-z]+day \d{1,2} [A-Z][a-z]+ \d{4}, \d{1,2}:\d{2}\][ \t]*')
+MAYBE_STAMP = re.compile(r'[\d\-T:+.Z\[\]]+')  # the start of a line that may still become one
+
+
 def _without_thinking(text, final):
-    """A reply without the <think>...</think> part some models write first. While it is still
-    arriving, a '<' near the end is held back: it may be the start of one."""
-    text = re.sub(r'(?s)<think>.*?(</think>|$)', '', text)
-    if not final and '<' in text[-8:]:
-        text = text[:text.rindex('<')]
+    """A reply without the <think>...</think> part some models write first, or a copied time
+    stamp. While it is still arriving, a '<' near the end, or a line that may yet turn out to be
+    a time stamp, is held back."""
+    text = TIME_STAMP.sub('', re.sub(r'(?s)<think>.*?(</think>|$)', '', text))
+    if not final:
+        if '<' in text[-8:]:
+            text = text[:text.rindex('<')]
+        last_line = text.rsplit('\n', 1)[-1]
+        if last_line and MAYBE_STAMP.fullmatch(last_line.lstrip()):
+            text = text[:len(text) - len(last_line)]
     return text
 
 
 def make_brain(settings):
-    if settings.get('brain') == 'local':  # a free model on this computer (TurboLLM, LM Studio, Ollama)
+    """"brain" in user_settings.json: "auto" (the default) is the local model with Claude only when
+    needed; "local" is the local model alone; "claude" is Claude alone (the API with a key, else
+    Claude Code)."""
+    choice = settings.get('brain') or 'auto'
+    if choice == 'local':  # a free model on this computer (TurboLLM, LM Studio, Ollama)
         return LocalBrain(settings)
+    if choice != 'claude':
+        return HybridBrain(settings)
     key = settings.get('anthropic_api_key') or ''
     if key:
         try:

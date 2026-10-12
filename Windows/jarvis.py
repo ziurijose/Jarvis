@@ -8,8 +8,11 @@ forgets each conversation when it ends (recall.py can look it up). While JARVIS 
 over it (or say "Hey Jarvis") to stop it and say something new.
 
 Or type instead of talking, in a terminal:  python jarvis.py --text  (add --speak to also hear
-the answers). Same brain, tools and memory. --local uses a free model on this computer instead of
-Claude (TurboLLM, started if needed, or LM Studio or Ollama), the fastest one it has.
+the answers). Same brain, tools and memory.
+
+The brain: a free model on this computer (TurboLLM, set up and started as needed), with Claude
+Code taking over only when it must (brain.HybridBrain). --local: the local model only; --claude:
+Claude only. "brain" in user_settings.json sets it for good.
 """
 import datetime
 import faulthandler
@@ -200,7 +203,7 @@ def converse(settings, brain_) -> None:
             if fallback:
                 brain_ = fallback
                 helpers.BRAIN_NAME = brain_.name
-                speak('I will use Claude Code instead for now.')
+                print('(Switched to Claude Code.)')  # in the log only: it should sound the same
         keep_audio = bool(cut_off)
         if getattr(brain_, 'ended', False) and not cut_off:  # Claude said goodbye
             end_conversation(brain_)
@@ -289,7 +292,6 @@ def type_to_jarvis(settings, brain_, aloud=False) -> None:
             if fallback:
                 brain_ = fallback
                 helpers.BRAIN_NAME = brain_.name
-                print('(Using Claude Code instead for now.)')
         if getattr(brain_, 'ended', False):  # it said goodbye: the next request starts afresh
             brain_.forget_conversation()
             conv = recall.start_conversation()
@@ -298,7 +300,7 @@ def type_to_jarvis(settings, brain_, aloud=False) -> None:
 
 def ask_for_claude_key(settings) -> dict:
     """Once: offer to save a Claude API key (the fastest brain). Enter skips."""
-    if 'anthropic_api_key' in settings or settings.get('brain') == 'local' or not sys.stdin.isatty():
+    if 'anthropic_api_key' in settings or settings.get('brain') != 'claude' or not sys.stdin.isatty():
         return settings
     print('\nJARVIS can use Claude to understand anything you say.')
     print('Fastest: a Claude API key (with credit) from https://platform.claude.com/settings/keys')
@@ -409,8 +411,10 @@ if __name__ == '__main__':
             sys.exit(0)
     helpers.HUD_TITLE = settings['assistant_name']
     helpers.VOICE = settings.get('voice')
-    if '--local' in sys.argv:  # this time, a free model on this computer (TurboLLM, LM Studio, Ollama)
+    if '--local' in sys.argv:  # this time, only the free model on this computer, never Claude
         settings = {**settings, 'brain': 'local'}
+    elif '--claude' in sys.argv:  # this time, only Claude
+        settings = {**settings, 'brain': 'claude'}
     settings = ask_for_claude_key(settings)
     brain_ = make_brain(settings)    # Claude Code starts in the background
     if brain_ is None:

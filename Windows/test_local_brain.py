@@ -32,6 +32,9 @@ class FakeServer:
                     return
                 server.requests.append(body)
                 chunks = server.scripts.pop(0)
+                if isinstance(chunks, int):  # an HTTP error, e.g. 500
+                    self.send_error(chunks)
+                    return
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/event-stream')
                 self.end_headers()
@@ -217,6 +220,11 @@ class LocalBrainTests(unittest.TestCase):
         self.assertEqual(brain._without_thinking('<think>hmm', final=False), '')
         self.assertEqual(brain._without_thinking('Hello <thi', final=False), 'Hello ')
         self.assertEqual(brain._without_thinking('<think>a</think>Hi.', final=True), 'Hi.')
+        stamped = '2026-10-12T13:58:00-04:00 Red, yellow and blue.\n[Monday 12 October 2026, 13:58] Anything else?'
+        self.assertEqual(brain._without_thinking(stamped, final=True), 'Red, yellow and blue.\nAnything else?')
+        self.assertEqual(brain._without_thinking('Sure.\n2026-10-1', final=False), 'Sure.\n')  # may be a stamp
+        self.assertEqual(brain._without_thinking('2 plus 2', final=False), '2 plus 2')
+        self.assertEqual(brain._without_thinking('It costs 15', final=False), 'It costs 15')
 
 
 if __name__ == '__main__':
