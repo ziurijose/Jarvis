@@ -6,6 +6,15 @@ SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'user_s
 DEFAULT_ASSISTANT_NAME = 'JARVIS'
 
 
+def save_json(path: str, data, **options) -> None:
+    """Writes data as JSON to path all at once: into a temporary file that then replaces path,
+    so a crash or a forced quit part way through leaves the old file whole, never half of one."""
+    temporary = path + '.tmp'
+    with open(temporary, 'w', encoding='utf-8') as f:
+        json.dump(data, f, **options)
+    os.replace(temporary, path)
+
+
 def load_settings(path: str = SETTINGS_PATH):
     """Return {'user_name', 'assistant_name', 'voice'}, or None if setup hasn't been done yet.
     'voice' is None when no voice was chosen (the system default voice is used)."""
@@ -29,15 +38,13 @@ def update_settings(changes: dict, path: str = SETTINGS_PATH) -> dict:
     except (OSError, ValueError):
         settings = {}
     settings.update(changes)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2)
+    save_json(path, settings, indent=2)
     return settings
 
 
 def write_settings(settings: dict, path: str = SETTINGS_PATH) -> dict:
     """Replace the whole file with settings (so a setting left out is removed)."""
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2)
+    save_json(path, settings, indent=2)
     return settings
 
 

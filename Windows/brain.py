@@ -28,6 +28,7 @@ import webbrowser
 import control
 import quick
 import recall
+import user_settings
 
 IS_MAC = sys.platform == 'darwin'
 IS_WINDOWS = sys.platform == 'win32'
@@ -188,8 +189,7 @@ def load_memory():
 def remember(fact):
     facts = load_memory()
     facts.append(fact.strip())
-    with open(MEMORY_PATH, 'w', encoding='utf-8') as f:
-        json.dump(facts[-200:], f, indent=1)
+    user_settings.save_json(MEMORY_PATH, facts[-200:], indent=1)
     return 'Remembered.'
 
 
@@ -198,8 +198,7 @@ def forget(about):
         return 'Forget what? Nothing was forgotten.'
     facts = load_memory()
     kept = [f for f in facts if about.lower() not in f.lower()]
-    with open(MEMORY_PATH, 'w', encoding='utf-8') as f:
-        json.dump(kept, f, indent=1)
+    user_settings.save_json(MEMORY_PATH, kept, indent=1)
     return f'Forgot {len(facts) - len(kept)} fact(s) and {recall.forget(about)} past exchange(s).'
 
 

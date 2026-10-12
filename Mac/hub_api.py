@@ -200,8 +200,7 @@ class HubApi:
             return []
 
     def _save_facts(self, facts):
-        with open(self._memory_path, 'w', encoding='utf-8') as f:
-            json.dump(facts[-MAX_FACTS:], f, indent=1, ensure_ascii=False)
+        user_settings.save_json(self._memory_path, facts[-MAX_FACTS:], indent=1, ensure_ascii=False)
 
     def list_memory(self):
         return [{'index': i, 'text': str(text)} for i, text in enumerate(self._facts())]

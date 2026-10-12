@@ -23,6 +23,8 @@ import time
 import uuid
 import webbrowser
 
+import user_settings
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REMINDERS_PATH = os.path.join(HERE, 'reminders.json')
 CREATE_NO_WINDOW = 0x08000000  # keeps a console window from flashing up
@@ -257,8 +259,7 @@ def _load_reminders() -> list:
 
 
 def _save_reminders(items: list) -> None:
-    with open(REMINDERS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(items, f, indent=1)
+    user_settings.save_json(REMINDERS_PATH, items, indent=1)
 
 
 def _parse_when(text: str) -> datetime.datetime:
