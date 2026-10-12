@@ -26,6 +26,7 @@ import threading
 import time
 import webbrowser
 import control
+import fetch_guard
 import quick
 import recall
 import user_settings
@@ -533,6 +534,14 @@ def parse_actions(text):
     return actions
 
 
+def fetch_guard_settings() -> dict:
+    """Claude Code settings that run fetch_guard.py before every web page Claude opens."""
+    python = sys.executable.replace(os.sep, '/')  # quoted forward-slash paths work in any shell
+    guard = os.path.join(HERE, 'fetch_guard.py').replace(os.sep, '/')
+    return {'hooks': {'PreToolUse': [{'matcher': 'WebFetch', 'hooks': [
+        {'type': 'command', 'command': f'"{python}" "{guard}"', 'timeout': 30}]}]}}
+
+
 class CliBrain(Brain):
     """Claude Code, started once and kept running in streaming mode. The old way started a
     new Claude Code for every request and waited for its whole answer (about 6 seconds
@@ -573,7 +582,7 @@ class CliBrain(Brain):
                 text = ''
             self.flags = {f for f in ('--include-partial-messages', '--tools', '--strict-mcp-config',
                                       '--disable-slash-commands', '--effort', '--no-session-persistence',
-                                      '--permission-prompts')
+                                      '--permission-prompts', '--settings')
                           if f in text}
             try:
                 version = subprocess.run([self.claude, '--version'], capture_output=True, text=True,
@@ -598,6 +607,11 @@ class CliBrain(Brain):
                     cmd.append(flag)
             if '--permission-prompts' in has:
                 cmd += ['--permission-prompts', 'none']  # anything else it wants is refused, not asked
+            if '--settings' in has:
+                cmd += ['--settings', json.dumps(fetch_guard_settings())]
+                fetch_guard.refresh_in_background()
+            else:
+                print('This Claude Code is too old to check web pages before opening them; update it.')
             if '--effort' in has:
                 cmd += ['--effort', self.settings.get('claude_effort') or EFFORT]
             if self.settings.get('claude_model'):
