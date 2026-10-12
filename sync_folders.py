@@ -3,7 +3,8 @@
 Each folder holds a complete JARVIS, so either can be downloaded and run on its own. Most of the
 code is the same in both: every file that exists in both folders must be identical. Only the
 platform's own files (mac.py, windows.py, the launchers, setup scripts, requirements and
-"START HERE" notes) differ, and those exist in one folder only.
+"START HERE" notes) differ, and those exist in one folder only. The ui folder (the setup window
+and the hub) is shared like the rest.
 
 After changing a shared file in one folder, copy it to the other:
     python sync_folders.py Mac        # Mac -> Windows
@@ -19,14 +20,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 FOLDERS = ('Mac', 'Windows')
 SKIP = {'__pycache__', '.venv', 'models'}
+PAGES = 'ui'  # the setup window and the hub: shared too
 
 
 def files(folder):
     """The files JARVIS is made of in one folder (not what it writes while running)."""
     root = os.path.join(HERE, folder)
-    return {name for name in os.listdir(root)
-            if name not in SKIP and os.path.isfile(os.path.join(root, name))
-            and name.endswith(('.py', '.txt', '.sh', '.ps1', '.bat', '.command'))}
+    found = {name for name in os.listdir(root)
+             if name not in SKIP and os.path.isfile(os.path.join(root, name))
+             and name.endswith(('.py', '.txt', '.sh', '.ps1', '.bat', '.command'))}
+    pages = os.path.join(root, PAGES)
+    if os.path.isdir(pages):
+        found |= {f'{PAGES}/{name}' for name in os.listdir(pages) if os.path.isfile(os.path.join(pages, name))}
+    return found
 
 
 def shared():

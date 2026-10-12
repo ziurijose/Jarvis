@@ -34,6 +34,13 @@ def update_settings(changes: dict, path: str = SETTINGS_PATH) -> dict:
     return settings
 
 
+def write_settings(settings: dict, path: str = SETTINGS_PATH) -> dict:
+    """Replace the whole file with settings (so a setting left out is removed)."""
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(settings, f, indent=2)
+    return settings
+
+
 def save_settings(user_name: str, assistant_name: str, path: str = SETTINGS_PATH,
                   voice=None) -> dict:
     # Keeps what's already there (the installer may have saved the local model's engine).

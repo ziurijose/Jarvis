@@ -288,22 +288,17 @@
       </div>
 
       <div class="section">
-        <div><h2>Brain</h2><p class="hint">Claude Code uses your Claude plan. An API key is billed to your Claude Console account.</p></div>
+        <div><h2>Brain</h2><p class="hint">A free AI model on this computer answers. Claude Code (your Claude plan, no API key) takes the requests it can't do.</p></div>
         <div class="fields">
           <div class="wide">
             <label class="field-label">Thinks with</label>
             <div class="seg" id="brain" role="radiogroup">
-              <button data-value="code">Claude Code</button><button data-value="api">API key</button>
+              <button data-value="auto">Local + Claude</button><button data-value="local">Local only</button><button data-value="claude">Claude only</button>
             </div>
           </div>
-          <div class="wide" id="key-row">
-            <label class="field-label" for="api_key">API key</label>
-            <input class="input" id="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
-            <div class="seg-note" id="key-note"></div>
-          </div>
-          <div><label class="field-label" for="model">Model</label><select class="input" id="model"></select></div>
+          <div><label class="field-label" for="model">Claude's model</label><select class="input" id="model"></select></div>
           <div>
-            <label class="field-label">Thinking</label>
+            <label class="field-label">Claude's thinking</label>
             <div class="seg" id="thinking" role="radiogroup">
               <button data-value="fast">Fast</button><button data-value="balanced">Balanced</button><button data-value="deep">Deep</button>
             </div>

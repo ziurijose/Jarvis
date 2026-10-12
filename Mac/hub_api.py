@@ -106,8 +106,7 @@ class HubApi:
             'assistant_name': s.get('assistant_name') or user_settings.DEFAULT_ASSISTANT_NAME,
             'voice': s.get('voice') or voices.DEFAULT_VOICE,
             'language': s.get('language', ''),
-            'brain': 'code',  # Claude means Claude Code: there is no API key to ask for
-            'has_key': False,
+            'brain': s.get('brain') or 'auto',  # auto (local, Claude Code when needed), local or claude
             'model': s.get('claude_model', ''),
             'thinking': next((k for k, v in THINKING.items() if v == effort), 'fast'),
             'wake_word': s.get('wake_word', True) is not False,
@@ -131,6 +130,11 @@ class HubApi:
                 if not _clean(form[key]):
                     return {'ok': False, 'error': f'{label} can\'t be blank.'}
                 s[key] = _clean(form[key])[:30]
+        if form.get('brain') in ('auto', 'local', 'claude'):
+            if form['brain'] == 'auto':
+                s.pop('brain', None)  # the default
+            else:
+                s['brain'] = form['brain']
         if 'thinking' in form:
             s['claude_effort'] = THINKING.get(form['thinking'], 'low')
         if form.get('voice_index') is not None and self._voices:
@@ -149,7 +153,7 @@ class HubApi:
                     s[key] = value
                 else:
                     s.pop(key, None)
-        user_settings.update_settings(s, self._settings_path)
+        user_settings.write_settings(s, self._settings_path)  # whole: a cleared setting is removed
         if 'start_at_login' in form and bool(form['start_at_login']) != login_item_enabled():
             set_login_item(bool(form['start_at_login']))
         return {'ok': True}

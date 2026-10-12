@@ -80,7 +80,7 @@ async function poll() {
 }
 
 /* ---- settings form ---------------------------------------------------------------------- */
-const TEXT = ['user_name', 'assistant_name', 'hotkey', 'city', 'api_key'];
+const TEXT = ['user_name', 'assistant_name', 'hotkey', 'city'];
 const SELECTS = ['language', 'model', 'microphone'];
 const SWITCHES = ['wake_word', 'barge_in', 'face_lock', 'start_at_login', 'menu_bar'];
 const SEGMENTS = ['brain', 'thinking'];
@@ -115,14 +115,12 @@ function fill(s) {
   setSegment('thinking', s.thinking);
   for (const key of SWITCHES) setSwitch(key, s[key]);
   $('face_strictness').value = s.face_strictness;
-  $('key-note').textContent = s.has_key ? 'A key is saved. Leave this empty to keep it.' : '';
   headline($('home-name'), s.assistant_name);
   $('brand-name').textContent = s.assistant_name;
   refreshDependents();
 }
 
 function refreshDependents() {
-  $('key-row').classList.toggle('hidden', $('brain').dataset.value !== 'api');
   $('strict-row').classList.toggle('hidden', !document.querySelector('[data-switch="face_lock"]').dataset.on);
   const v = +$('face_strictness').value;
   $('strict-out').textContent = `${strictWord(v)} · ${v}`;
@@ -141,7 +139,7 @@ function collect() {
 let original = null;  // collect() right after loading
 function changed() {
   const now = collect();
-  const dirty = original && Object.keys(now).some((k) => k !== 'api_key' && now[k] !== original[k]) || !!now.api_key;
+  const dirty = original && Object.keys(now).some((k) => now[k] !== original[k]);
   $('savebar').classList.toggle('show', dirty);
   $('save').textContent = state.running ? 'Save and restart JARVIS' : 'Save';
   $('save-msg').className = 'msg';
