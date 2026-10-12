@@ -27,7 +27,7 @@ To run setup again (new user or new face), delete `user_settings.json` and start
 Every setting lives in one window: **Open hub** in the menu bar or tray menu, or double-click
 **Open JARVIS Hub.bat** in the Windows folder (`python hub.py` in the Mac folder). Home shows what JARVIS is doing
 right now, with Start, Restart and Quit. Settings has its name and yours, its voice (press play
-to hear each one), the brain (Claude Code or an API key, the model, how hard it thinks),
+to hear each one), the brain (the model, how hard it thinks),
 listening, the face lock and start-up options. **Save** restarts JARVIS so the changes take
 effect. It answers to any name you give it, short ones like "Max" included, and "Hey Jarvis"
 keeps working too.
@@ -72,8 +72,8 @@ To look something up, the local model opens the search results in your browser a
 off the screen, scrolling and clicking like you would.
 
 **Choosing:** `"brain"` in `user_settings.json` is `"auto"` (the default, as above), `"local"`
-(only the local model, never Claude) or `"claude"` (only Claude: Claude Code, or the API with
-`anthropic_api_key`). For one run, start JARVIS with `--local` or `--claude`. Other optional
+(only the local model, never Claude) or `"claude"` (only Claude Code). None of them needs an API
+key. For one run, start JARVIS with `--local` or `--claude`. Other optional
 settings: `"local_model"` (a model by name instead), `"local_url"` (another server, such as LM
 Studio's `http://localhost:1234/v1` or Ollama's `http://localhost:11434/v1`), `"local_vision":
 false` for a model that can't see images, and `"local_api_key"` if the server is shared with a
@@ -151,14 +151,14 @@ way (no admin password), and works the same, with these differences:
 ## Claude
 
 When JARVIS needs Claude (see "The brain" above), it uses [Claude Code](https://claude.com/claude-code)
-signed in with your Claude account, or a Claude API key if you saved one and Claude Code isn't
-installed (`anthropic_api_key` in `user_settings.json`; API use is billed to your Console account).
+signed in with your Claude account. No API key is needed, and JARVIS never asks for one.
 
 ## Settings (`user_settings.json`)
 
 | Setting | What it does |
 | --- | --- |
 | `"assistant_name"` | The assistant's name (the hub sets it); restart JARVIS after changing it by hand |
+| `"brain"` | `"auto"` (default: the local model, Claude Code when needed), `"local"` or `"claude"`; see "The brain" |
 | `"claude_model"` | The Claude model, e.g. `"claude-haiku-5-5"` (Claude Code also takes `"haiku"`, `"sonnet"`, `"opus"`) |
 | `"claude_effort"` | How hard Claude thinks: `"low"` (default, fastest) up to `"high"` |
 | `"barge_in": false` | Talking over JARVIS no longer interrupts it; only "Hey Jarvis" and the hotkey do |

@@ -10,7 +10,6 @@ pyautogui
 requests
 yt-dlp
 setuptools
-anthropic>=1.0
 rumps
 pynput
 pyobjc-framework-EventKit

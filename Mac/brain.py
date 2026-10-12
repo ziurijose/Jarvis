@@ -1,10 +1,10 @@
 """JARVIS's brain: Claude understands what you say, however you say it, and uses JARVIS's
 abilities (the tools below) to do it.
 
-Two ways to reach Claude:
-  ApiBrain  - your Claude API key. Needs API credit: https://platform.claude.com/settings/billing
+The brains:
   CliBrain  - Claude Code on this computer, signed in with your Claude account, so it uses your
-              Claude plan. It is started once and kept running, so a request costs no start-up.
+              Claude plan (no API key). It is started once and kept running, so a request costs
+              no start-up.
 Both stream: JARVIS starts speaking at the first sentence, while the rest is still being written.
 Simple commands ("pause", "volume 40", "open Spotify", quick.py) never reach Claude: JARVIS does
 them itself, at once and for free.
@@ -468,124 +468,6 @@ class Brain:
         return note
 
 
-# ---- Claude through the API ---------------------------------------------------------------
-
-class ApiBrain(Brain):
-    name = 'Claude API'
-    broken = False  # the key was refused or is out of credit
-    ended = False   # the last reply closed the conversation (Claude wrote END)
-
-    def __init__(self, api_key, settings, model=None, effort=None):
-        import anthropic
-        self.anthropic = anthropic
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.settings = settings
-        self.model = model or settings.get('claude_model') or MODEL
-        self.effort = effort or settings.get('claude_effort') or EFFORT
-        self.messages = []
-        self.last_used = 0
-        self.system = system_prompt(settings)
-        self.tools = [{'name': n, 'description': d, 'input_schema': s, 'eager_input_streaming': True}
-                      for n, (_f, d, s) in TOOLS.items()]
-        haiku = 'haiku' in self.model  # Haiku has the basic web search and no server-side fallback
-        self.tools.append({'type': 'web_search_20250305' if haiku else 'web_search_20260209',
-                           'name': 'web_search', 'max_uses': 3})
-        self.fallback = {} if haiku else {'betas': ['server-side-fallback-2026-07-01'], 'fallbacks': 'default'}
-
-    def handle(self, text, speech, interrupted):
-        """Answers text, feeding the spoken reply to speech. Returns what was said, and sets
-        self.ended when Claude closed the conversation. Raises Sleep to quit JARVIS."""
-        said = self._locally(text, speech)
-        if said is not None:
-            return said
-        try:
-            return self._handle(text, speech, interrupted)
-        finally:
-            control.release_all()
-
-    def _handle(self, text, speech, interrupted):
-        note = self._local_note()  # this conversation's (the last one's were cleared when it ended)
-        if time.time() - self.last_used > FRESH_AFTER:
-            self.forget_conversation()
-        self.last_used = time.time()
-        self.ended = False
-        self.messages.append({'role': 'user', 'content': f'{note}{now_note()} {text}'})
-        self.heard = text
-        spoken = Spoken(speech)
-        bad_json = 0
-        for _step in range(MAX_STEPS):
-            try:
-                with self.client.beta.messages.stream(
-                        model=self.model, max_tokens=4096, system=self.system, tools=self.tools,
-                        messages=self.messages, output_config={'effort': self.effort},
-                        cache_control={'type': 'ephemeral'}, **self.fallback) as stream:
-                    for event in stream:
-                        if interrupted.is_set():
-                            return spoken_part(spoken.raw)  # the user spoke over JARVIS; leave this turn unanswered
-                        if event.type == 'text':
-                            spoken.add(event.text)
-                    reply = stream.get_final_message()
-                bad_json = 0
-            except ValueError:  # a tool input that could not be parsed at all: ask again
-                bad_json += 1
-                if bad_json > 2:
-                    raise
-                continue
-            self.messages.append({'role': 'assistant', 'content': reply.content})
-            if reply.stop_reason == 'pause_turn':
-                continue
-            calls = [b for b in reply.content if b.type == 'tool_use']
-            if reply.stop_reason == 'refusal':
-                said = spoken.finish()
-                if not said:
-                    speech.feed("Sorry, I can't help with that.")
-                return said
-            if not calls or reply.stop_reason == 'max_tokens':
-                self.ended = spoken.ended
-                return spoken.finish()
-            results = []
-            sleep = failed = False
-            for call in calls:
-                try:
-                    if failed and call.name in MOUSE_AND_KEYS:
-                        content, is_error = SKIPPED, True
-                    else:
-                        content, is_error = run_tool(call.name, call.input, self.heard)
-                        failed = failed or is_error
-                except Sleep:
-                    content, is_error, sleep = 'Going to sleep.', False, True
-                results.append({'type': 'tool_result', 'tool_use_id': call.id, 'content': content,
-                                'is_error': is_error})
-            self.messages.append({'role': 'user', 'content': results})
-            if sleep:
-                spoken.finish()
-                raise Sleep()
-        return spoken.finish()
-
-    def forget_conversation(self):
-        """Starts a new conversation: Claude no longer sees the last one (recall.py has it)."""
-        self.messages = []                          # a new conversation, never an edited one
-        self.done_locally = ()
-        self.system = system_prompt(self.settings)  # picks up newly remembered facts
-
-    def problem(self, error):
-        """A spoken explanation for an API error, or None if it isn't one."""
-        a = self.anthropic
-        if isinstance(error, a.AuthenticationError):
-            self.broken = True
-            return "My Claude API key isn't working. Check it in user_settings.json."
-        if isinstance(error, a.BadRequestError) and 'credit balance' in str(error).lower():
-            self.broken = True
-            return 'Your Claude API account is out of credit. Add some on the Claude billing page.'
-        if isinstance(error, a.RateLimitError):
-            return 'Claude is busy right now. Try again in a moment.'
-        if isinstance(error, a.APIConnectionError):
-            return "I can't reach Claude. Check the internet connection."
-        if isinstance(error, a.APIStatusError):
-            return f'Claude had a problem: error {error.status_code}.'
-        return None
-
-
 # ---- Claude through Claude Code -----------------------------------------------------------
 
 CLI_RULES = '''Your words are spoken as you write them, except action blocks. To act on the computer, write
@@ -969,17 +851,25 @@ def _answers(url, headers=None):
         return False
 
 
+# Where the installer puts Node.js and TurboLLM: in JARVIS's own folder (no admin password needed).
+NODE_DIR = os.path.join(HERE, '.node')
+NODE_BIN = NODE_DIR if IS_WINDOWS else os.path.join(NODE_DIR, 'bin')
+
+
 def start_turbollm(wait=120):
-    """Starts TurboLLM in the background (installed, or through npx) and waits until it answers.
-    Returns its address, or None when Node.js isn't installed or it didn't start."""
+    """Starts TurboLLM in the background (JARVIS's own copy, one installed elsewhere, or through
+    npx) and waits until it answers. Returns its address, or None when Node.js isn't installed
+    or it didn't start."""
     url = LOCAL_SERVERS[0][1]
-    command = shutil.which('turbollm')
-    command = [command] if command else ([shutil.which('npx'), '--yes', 'turbollm'] if shutil.which('npx') else None)
+    path = NODE_BIN + os.pathsep + os.environ.get('PATH', '')  # TurboLLM runs on this Node.js
+    command = shutil.which('turbollm', path=path)
+    npx = shutil.which('npx', path=path)
+    command = [command] if command else ([npx, '--yes', 'turbollm'] if npx else None)
     if not command:
         return None
-    print('Starting TurboLLM (the first time, npx downloads it)...')
+    print('Starting TurboLLM...')
     subprocess.Popen(command + ['--no-open'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, cwd=os.path.expanduser('~'),
+                     stderr=subprocess.DEVNULL, cwd=os.path.expanduser('~'), env={**os.environ, 'PATH': path},
                      **(NO_WINDOW if IS_WINDOWS else {'start_new_session': True}))
     deadline = time.time() + wait
     while time.time() < deadline:
@@ -1124,6 +1014,21 @@ class TurboSetup:
         except Exception as error:
             print(f"The {backend} engine doesn't work on this computer ({error}).")
             return 0
+
+
+def prepare_local_model(settings=None):
+    """For the installer: starts TurboLLM and does the first-time setup now (the model for this
+    computer's graphics memory, downloaded, on the fastest engine), so JARVIS's first start
+    doesn't wait for it. Returns the model's name."""
+    url = LOCAL_SERVERS[0][1]
+    if not _answers(url):
+        url = start_turbollm(wait=600)
+    if not url:
+        raise LocalProblem("TurboLLM didn't start.")
+    if settings is None:
+        import user_settings
+        settings = user_settings.load_settings() or {}
+    return TurboSetup(url, settings).run()
 
 
 # A local model can't search the web by itself, so it does what a person would: opens the
@@ -1438,8 +1343,8 @@ class _Heard:
 
 
 class HybridBrain(Brain):
-    """The default brain: the free local model answers, and Claude Code (or the Claude API, with a
-    key) takes over only when it has to: while the local model is getting ready or has stopped,
+    """The default brain: the free local model answers, and Claude Code takes over only when it
+    has to: while the local model is getting ready or has stopped,
     when it fails or says nothing, or when it hands a request over itself (ask_claude). Both
     get the same persona and rules, JARVIS speaks for both in the same voice, nothing announces
     a switch, and each one hears what the other said, so a handover can't be heard."""
@@ -1456,13 +1361,7 @@ class HybridBrain(Brain):
 
     @staticmethod
     def _make_backup(settings):
-        claude = cli_brain(settings, warm=False)  # started now, but asked nothing until it's needed
-        if claude is None and settings.get('anthropic_api_key'):
-            try:
-                claude = ApiBrain(settings['anthropic_api_key'], settings)
-            except ImportError:
-                pass
-        return claude
+        return cli_brain(settings, warm=False)  # started now, but asked nothing until it's needed
 
     def handle(self, text, speech, interrupted):
         self.ended = False
@@ -1561,18 +1460,12 @@ def _without_thinking(text, final):
 
 
 def make_brain(settings):
-    """"brain" in user_settings.json: "auto" (the default) is the local model with Claude only when
-    needed; "local" is the local model alone; "claude" is Claude alone (the API with a key, else
-    Claude Code)."""
+    """"brain" in user_settings.json: "auto" (the default) is the local model with Claude Code only
+    when needed; "local" is the local model alone; "claude" is Claude Code alone. None of them
+    needs an API key."""
     choice = settings.get('brain') or 'auto'
     if choice == 'local':  # a free model on this computer (TurboLLM, LM Studio, Ollama)
         return LocalBrain(settings)
     if choice != 'claude':
         return HybridBrain(settings)
-    key = settings.get('anthropic_api_key') or ''
-    if key:
-        try:
-            return ApiBrain(key, settings)
-        except ImportError:
-            print('The anthropic package is missing; run setup again.')
     return cli_brain(settings)

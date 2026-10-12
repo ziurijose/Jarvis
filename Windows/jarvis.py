@@ -1,6 +1,6 @@
 """JARVIS: a voice assistant for your Mac or Windows PC.
 
-Start-up: first-run setup (once) -> Claude key (asked once) -> face lock -> conversation.
+Start-up: first-run setup (once) -> face lock -> conversation.
 The conversation: say "Hey Jarvis" (or press the hotkey, or click Talk in the menu bar),
 then talk back and forth; no wake word is needed until the conversation ends (10 quiet
 seconds, or you wrap up). Claude (brain.py) understands it and acts with JARVIS's tools, and
@@ -76,7 +76,7 @@ import voices as voice_lib
 from brain import Sleep, cli_brain, make_brain
 from helpers import hud, speak
 from platform_utils import open_camera
-from user_settings import load_settings, update_settings
+from user_settings import load_settings
 
 
 # ---- talking with Claude ----------------------------------------------------------------
@@ -298,26 +298,6 @@ def type_to_jarvis(settings, brain_, aloud=False) -> None:
             print('(Conversation over. The next request starts a new one.)\n')
 
 
-def ask_for_claude_key(settings) -> dict:
-    """Once: offer to save a Claude API key (the fastest brain). Enter skips."""
-    if 'anthropic_api_key' in settings or settings.get('brain') != 'claude' or not sys.stdin.isatty():
-        return settings
-    print('\nJARVIS can use Claude to understand anything you say.')
-    print('Fastest: a Claude API key (with credit) from https://platform.claude.com/settings/keys')
-    print('Or press Enter to use Claude Code with your Claude account, if it is installed.')
-    import getpass
-    key = getpass.getpass('Claude API key (hidden as you paste, Enter to skip): ').strip()
-    if key:
-        try:
-            import anthropic
-            anthropic.Anthropic(api_key=key).models.list(limit=1)
-            print('Key works.')
-        except Exception as error:
-            print(f'That key did not work ({error}); skipping it. Add it to user_settings.json later.')
-            key = ''
-    return update_settings({'anthropic_api_key': key})
-
-
 def wakeUpJARVIS(settings, brain_):
     print(f'Brain: {brain_.name}')
     if sys.platform == 'win32':  # Windows reminders are JARVIS's own: it says each one when due
@@ -415,11 +395,10 @@ if __name__ == '__main__':
         settings = {**settings, 'brain': 'local'}
     elif '--claude' in sys.argv:  # this time, only Claude
         settings = {**settings, 'brain': 'claude'}
-    settings = ask_for_claude_key(settings)
     brain_ = make_brain(settings)    # Claude Code starts in the background
     if brain_ is None:
-        message = ('I need Claude to work. Install Claude Code from claude.com/claude-code and sign in, '
-                   'or add a Claude API key to user_settings.json.')
+        message = ('Claude only mode needs Claude Code. Install it from claude.com/claude-code and sign in, '
+                   'or start me without --claude to use the local model.')
         print(message)
         speak(message)
         sys.exit(1)

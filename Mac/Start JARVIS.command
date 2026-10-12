@@ -24,5 +24,10 @@ if { [ ! -f .venv/.no-whisper ] && ! .venv/bin/python -c "import faster_whisper"
    || { [ ! -f .venv/.no-kokoro ] && [ ! -f models/kokoro-v1.0.onnx ]; }; then
     bash add_speech.sh
 fi
+# Older installs: add the local model (Node.js, TurboLLM, the model) and Claude Code once.
+if [ ! -f .venv/.no-local ] && [ ! -x .node/bin/turbollm ]; then
+    bash add_local_model.sh
+fi
 
+export PATH="$PWD/.node/bin:$HOME/.local/bin:$PATH"  # TurboLLM, its Node.js, and Claude Code
 exec .venv/bin/python -W ignore jarvis.py

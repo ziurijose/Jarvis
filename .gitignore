@@ -168,3 +168,7 @@ recall_index.npy
 
 # Windows shortcuts point at one PC's paths
 *.lnk
+
+# What the Mac installer adds to the JARVIS folder
+.node/
+.node.tar.gz

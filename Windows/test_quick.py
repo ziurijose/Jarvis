@@ -84,43 +84,30 @@ class Replies(unittest.TestCase):
         self.assertEqual(reply('Spotify is not running.'), 'Spotify is not running.')
 
 
-class ToldToClaude(unittest.TestCase):
-    """A simple command is answered without Claude, and Claude hears about it next time."""
+class ToldToTheModel(unittest.TestCase):
+    """A simple command is answered without the model, and the model hears about it next time."""
 
-    def test_api_brain(self):
+    def test_local_brain(self):
+        import threading
         import brain
+        from test_local_brain import FakeServer, Speech
 
-        class Speech:
-            def __init__(self):
-                self.said = []
-
-            def feed(self, text):
-                self.said.append(text)
-
-        class Sent(Exception):
-            pass
-
-        sent = []
-
-        def stream(**request):
-            sent.append(request)
-            raise Sent  # stop before anything goes out
-
-        claude = brain.ApiBrain('test-key', {'assistant_name': 'Jarbungus', 'city': 'Boston'})
-        claude.client.beta.messages.stream = stream
-        speech = Speech()
-        said = claude.handle('What time is it?', speech, None)
-        self.assertTrue(said.startswith("It's "))
-        self.assertEqual(speech.said, [said])
-        self.assertEqual(sent, [])
-        with self.assertRaises(Sent):
-            claude.handle('Tell me a joke.', Speech(), None)
-        first = sent[0]['messages'][-1]['content']
+        server = FakeServer([[{'content': 'Ha.'}], [{'content': 'Again.'}]])
+        try:
+            local = brain.LocalBrain({'local_url': server.url, 'assistant_name': 'Jarbungus', 'city': 'Boston'})
+            speech = Speech()
+            said = local.handle('What time is it?', speech, threading.Event())
+            self.assertTrue(said.startswith("It's "))
+            self.assertEqual(speech.said, said)
+            self.assertEqual(server.requests, [])  # the model wasn't asked
+            local.handle('Tell me a joke.', Speech(), threading.Event())
+            local.handle('Another one.', Speech(), threading.Event())
+        finally:
+            server.close()
+        first = server.requests[0]['messages'][-1]['content']
         self.assertIn('What time is it?', first)
         self.assertTrue(first.endswith('Tell me a joke.'))
-        with self.assertRaises(Sent):
-            claude.handle('Another one.', Speech(), None)
-        self.assertNotIn('What time is it?', sent[1]['messages'][-1]['content'])
+        self.assertNotIn('What time is it?', server.requests[1]['messages'][-1]['content'])
 
 
 if __name__ == '__main__':

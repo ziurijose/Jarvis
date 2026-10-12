@@ -10,7 +10,6 @@ pyautogui
 requests
 yt-dlp
 setuptools
-anthropic>=1.0
 pynput
 pyperclip
 # Windows: tray icon, speaker volume, and media controls (play/pause for Spotify and others)

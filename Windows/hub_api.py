@@ -98,7 +98,7 @@ class HubApi:
     # ---- settings ----------------------------------------------------------------------
 
     def load(self):
-        """Every setting in the form the page shows. The API key itself never leaves Python."""
+        """Every setting in the form the page shows."""
         s = self._read()
         effort = s.get('claude_effort') or 'low'
         return {
@@ -106,8 +106,8 @@ class HubApi:
             'assistant_name': s.get('assistant_name') or user_settings.DEFAULT_ASSISTANT_NAME,
             'voice': s.get('voice') or voices.DEFAULT_VOICE,
             'language': s.get('language', ''),
-            'brain': 'api' if s.get('anthropic_api_key') else 'code',
-            'has_key': bool(s.get('anthropic_api_key')),
+            'brain': 'code',  # Claude means Claude Code: there is no API key to ask for
+            'has_key': False,
             'model': s.get('claude_model', ''),
             'thinking': next((k for k, v in THINKING.items() if v == effort), 'fast'),
             'wake_word': s.get('wake_word', True) is not False,
@@ -131,15 +131,6 @@ class HubApi:
                 if not _clean(form[key]):
                     return {'ok': False, 'error': f'{label} can\'t be blank.'}
                 s[key] = _clean(form[key])[:30]
-        if 'brain' in form:
-            if form['brain'] == 'code':
-                s['anthropic_api_key'] = ''  # blank, not removed: JARVIS won't ask for a key again
-            else:
-                key = str(form.get('api_key') or '').strip()
-                if key:
-                    s['anthropic_api_key'] = key
-                elif not s.get('anthropic_api_key'):
-                    return {'ok': False, 'error': 'Paste an API key, or choose Claude Code.'}
         if 'thinking' in form:
             s['claude_effort'] = THINKING.get(form['thinking'], 'low')
         if form.get('voice_index') is not None and self._voices:
