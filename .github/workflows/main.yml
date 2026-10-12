@@ -8,9 +8,30 @@ on:
   workflow_dispatch:
 
 jobs:
+  folders-match:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Mac and Windows folders share identical files
+        run: python3 sync_folders.py --check
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - folder: Mac
+            requirements: requirements-mac.txt
+            linux_skips: '^(rumps|pyobjc)'
+          - folder: Windows
+            requirements: requirements-windows.txt
+            linux_skips: '^(pycaw|winrt)'
+    defaults:
+      run:
+        working-directory: ${{ matrix.folder }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +49,7 @@ jobs:
 
       - name: Install JARVIS's packages (the ones that install on Linux)
         run: |
-          grep -vE '^(rumps|pyobjc)' requirements-mac.txt > /tmp/requirements-ci.txt
+          grep -vE '${{ matrix.linux_skips }}' ${{ matrix.requirements }} > /tmp/requirements-ci.txt
           pip install -r /tmp/requirements-ci.txt
 
       - name: Import every module
@@ -42,4 +63,5 @@ jobs:
         run: python -m unittest -v
 
       - name: Check the shell scripts
+        if: matrix.folder == 'Mac'
         run: for f in setup_mac.sh add_speech.sh "Start JARVIS.command"; do bash -n "$f"; done

@@ -212,9 +212,12 @@ def _schema(props, required=()):
     return {'type': 'object', 'properties': props, 'required': list(required), 'additionalProperties': False}
 
 
-import mac  # noqa: E402  (Calendar, Reminders, Notes, Messages, Mail)
+# Each platform's own abilities. Only the one this computer needs is loaded, so the Mac and
+# Windows folders each carry just their own (mac.py, windows.py).
 if IS_WINDOWS:
     import windows  # noqa: E402  (apps, music, volume, notes, reminders, email drafts)
+elif IS_MAC:
+    import mac  # noqa: E402  (Calendar, Reminders, Notes, Messages, Mail)
 
 S = {'type': 'string'}
 I = {'type': 'integer'}
@@ -278,19 +281,6 @@ TOOLS = {
                      'optionally with text input.', _schema({'name': S, 'text_input': S}, ['name'])),
     'remember': (remember, 'Remember a fact about the user for future conversations.', _schema({'fact': S}, ['fact'])),
     'forget': (forget, 'Forget remembered facts that mention something, and remove them from past conversations too.', _schema({'about': S}, ['about'])),
-    'calendar_events': (mac.calendar_events, 'The user\'s calendar events from the start of a day (default today) '
-                        'for a number of days.', _schema({'day': ISO, 'days': I})),
-    'add_calendar_event': (mac.add_calendar_event, 'Add an event to the calendar.',
-                           _schema({'title': S, 'start': ISO, 'minutes': I, 'calendar': S, 'location': S}, ['title', 'start'])),
-    'list_reminders': (mac.list_reminders, 'Open reminders, from the default list or a named list.', _schema({'list_name': S})),
-    'add_reminder': (mac.add_reminder, 'Add a reminder, optionally with a due time (it alerts then).',
-                     _schema({'text': S, 'due': ISO, 'list_name': S}, ['text'])),
-    'complete_reminder': (mac.complete_reminder, 'Mark reminders containing some text as done.', _schema({'text': S}, ['text'])),
-    'add_note': (mac.add_note, 'Save a note in Apple Notes.', _schema({'title': S, 'body': S}, ['title'])),
-    'send_message': (mac.send_message, 'Send an iMessage/text with Messages. to: contact name, phone or email.' + SEND_NOTE,
-                     _schema({'to': S, 'text': S, 'confirmed': B}, ['to', 'text'])),
-    'send_email': (mac.send_email, 'Send an email with the Mail app. to: contact name or email.' + SEND_NOTE,
-                   _schema({'to': S, 'subject': S, 'body': S, 'confirmed': B}, ['to', 'subject', 'body'])),
     'download_youtube': (download_youtube, 'Download a YouTube video to the Downloads folder. With no url, uses '
                          'the link the user copied.', _schema({'url': S})),
     'recall': (recall.search, 'Look up earlier conversations with the user, only when they ask about '
@@ -303,11 +293,27 @@ TOOLS = {
 }
 
 
+if IS_MAC:
+    TOOLS.update({
+        'calendar_events': (mac.calendar_events, 'The user\'s calendar events from the start of a day (default today) '
+                            'for a number of days.', _schema({'day': ISO, 'days': I})),
+        'add_calendar_event': (mac.add_calendar_event, 'Add an event to the calendar.',
+                               _schema({'title': S, 'start': ISO, 'minutes': I, 'calendar': S, 'location': S}, ['title', 'start'])),
+        'list_reminders': (mac.list_reminders, 'Open reminders, from the default list or a named list.', _schema({'list_name': S})),
+        'add_reminder': (mac.add_reminder, 'Add a reminder, optionally with a due time (it alerts then).',
+                         _schema({'text': S, 'due': ISO, 'list_name': S}, ['text'])),
+        'complete_reminder': (mac.complete_reminder, 'Mark reminders containing some text as done.', _schema({'text': S}, ['text'])),
+        'add_note': (mac.add_note, 'Save a note in Apple Notes.', _schema({'title': S, 'body': S}, ['title'])),
+        'send_message': (mac.send_message, 'Send an iMessage/text with Messages. to: contact name, phone or email.' + SEND_NOTE,
+                         _schema({'to': S, 'text': S, 'confirmed': B}, ['to', 'text'])),
+        'send_email': (mac.send_email, 'Send an email with the Mail app. to: contact name or email.' + SEND_NOTE,
+                       _schema({'to': S, 'subject': S, 'body': S, 'confirmed': B}, ['to', 'subject', 'body'])),
+    })
+
 if IS_WINDOWS:
     # Windows has no general equivalent of Calendar, iMessage or Apple Shortcuts, so those are
     # not offered; notes, reminders and email have Windows versions (windows.py).
-    for _name in ('calendar_events', 'add_calendar_event', 'send_message', 'send_email',
-                  'list_shortcuts', 'run_shortcut'):
+    for _name in ('list_shortcuts', 'run_shortcut'):
         TOOLS.pop(_name)
     TOOLS.update({
         'list_reminders': (windows.list_reminders, 'Open reminders (JARVIS keeps them, and says each one '

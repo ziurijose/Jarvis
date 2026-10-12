@@ -6,9 +6,16 @@ it, and acts on your computer.
 
 Based on [gauravsingh9356/J.A.R.V.I.S](https://github.com/gauravsingh9356/J.A.R.V.I.S) (MIT licence).
 
+## Two folders
+
+**Mac** and **Windows** each hold a complete JARVIS: copy or download just the folder for your
+computer and keep it somewhere you won't move it (it installs into that folder). Most files are
+the same in both. After changing one of those, run `python sync_folders.py Mac` (or `Windows`) to
+copy the change to the other folder; CI checks that they match.
+
 ## Start
 
-Double-click **Start JARVIS.command**. The first time, it installs what it needs into this folder
+In the **Mac** folder, double-click **Start JARVIS.command**. The first time, it installs what it needs into this folder
 (a few minutes; no admin password or Homebrew). Then a setup window asks for your name and a name
 for the assistant, and scans your face for the face lock. Allow **camera** and **microphone**
 access for Terminal when macOS asks. "START HERE (Mac).txt" has the step-by-step version.
@@ -18,7 +25,7 @@ To run setup again (new user or new face), delete `user_settings.json` and start
 ## The hub
 
 Every setting lives in one window: **Open hub** in the menu bar or tray menu, or double-click
-**Open JARVIS Hub.bat** on Windows (`python hub.py` on a Mac). Home shows what JARVIS is doing
+**Open JARVIS Hub.bat** in the Windows folder (`python hub.py` in the Mac folder). Home shows what JARVIS is doing
 right now, with Start, Restart and Quit. Settings has its name and yours, its voice (press play
 to hear each one), the brain (Claude Code or an API key, the model, how hard it thinks),
 listening, the face lock and start-up options. **Save** restarts JARVIS so the changes take
@@ -35,7 +42,7 @@ phone's own apps. Timers only ring while the page is open.
 
 ## On Windows
 
-Double-click **Start JARVIS.bat** ("START HERE (Windows).txt" has the steps). It installs the same
+In the **Windows** folder, double-click **Start JARVIS.bat** ("START HERE (Windows).txt" has the steps). It installs the same
 way (no admin password), and works the same, with these differences:
 
 - **Hotkey:** Ctrl+Alt+J (Alt+Space opens every window's menu on Windows). JARVIS's icon sits in
