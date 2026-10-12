@@ -149,6 +149,7 @@ user_settings.json
 memory.json
 screen.png
 jarvis.log
+jarvis.prev.log
 
 # JARVIS: personal data and downloads
 user_settings.json

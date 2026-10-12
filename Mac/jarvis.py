@@ -22,6 +22,7 @@ import threading
 import time
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jarvis.log')
+PREVIOUS_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jarvis.prev.log')
 
 
 class _Tee:
@@ -51,13 +52,21 @@ class _Tee:
         return getattr(self.stream, name)
 
 
+def _new_log():
+    try:  # keep the last run's log: it explains a crash or a sudden quit
+        os.replace(LOG_PATH, PREVIOUS_LOG_PATH)
+    except OSError:
+        pass
+    return open(LOG_PATH, 'w', encoding='utf-8', buffering=1)
+
+
 def _start_log():
     if sys.stdout is None:  # started without a console (Windows "Start when I sign in"): log only
-        log = open(LOG_PATH, 'w', encoding='utf-8', buffering=1)
+        log = _new_log()
         sys.stdout = sys.stderr = log
         faulthandler.enable(file=log, all_threads=True)
     elif sys.stdout.isatty():
-        log = open(LOG_PATH, 'w', encoding='utf-8', buffering=1)
+        log = _new_log()
         sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
         faulthandler.enable(file=log, all_threads=True)  # even a hard crash leaves a trace
     else:
