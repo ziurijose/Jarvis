@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #0f1113;
+    --panel: #16191c;
+    --panel-hi: #1d2125;
+    --line: #262a2f;
+    --text: #f7f7f8;
+    --muted: #8c939c;
+    --lime: #d1fe17;
+    --lime-dim: rgba(209, 254, 23, 0.14);
+    --error: #ff6b5e;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --display: "Space Grotesk", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--void);
+    color: var(--text);
+    font: 15px/1.55 var(--body);
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app { display: grid; grid-template-columns: 45% 1fr; height: 100vh; }
+
+  /* ---- stage: the orb ------------------------------------------------------ */
+  .stage { position: relative; overflow: hidden; }
+  .stage::after {            /* soft vignette so the orb sits in depth, not on a flat plate */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 50%, transparent 40%, var(--void) 78%);
+  }
+  #orb { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .brand {
+    position: absolute; left: 32px; top: 28px; z-index: 2;
+    font: 700 15px/1 var(--display); letter-spacing: -0.04em; text-transform: uppercase;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 12px var(--lime); }
+
+  /* ---- content side ------------------------------------------------------------ */
+  .side { position: relative; padding: 28px 48px 40px 24px; display: flex; flex-direction: column; }
+  .progress { display: flex; gap: 8px; align-self: flex-end; width: 180px; }
+  .progress span { flex: 1; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+  .progress span::after {
+    content: ""; position: absolute; inset: 0; background: var(--lime);
+    transform: scaleX(0); transform-origin: left; transition: transform 700ms var(--ease);
+  }
+  .progress span.done::after { transform: scaleX(1); }
+  .progress-caption { align-self: flex-end; margin-top: 8px; color: var(--muted); font-size: 12px; }
+
+  .screens { position: relative; flex: 1; }
+  .screen {
+    position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center;
+    opacity: 0; transform: translateX(28px); pointer-events: none;
+    transition: opacity 500ms var(--ease), transform 700ms var(--ease);
+  }
+  .screen.active { opacity: 1; transform: none; pointer-events: auto; }
+  .screen.leaving { opacity: 0; transform: translateX(-28px); }
+
+  h1 {
+    font: 700 54px/0.95 var(--display); letter-spacing: -0.04em; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  h1 .line { display: block; overflow: hidden; padding-bottom: 0.06em; }
+  h1 .ch { display: inline-block; transform: translateY(105%); transition: transform 800ms var(--ease); }
+  .screen.active h1 .ch { transform: none; }
+  .lead { color: var(--muted); max-width: 36ch; margin-bottom: 28px; }
+
+  label { display: block; color: var(--muted); font-size: 13px; font-weight: 500; margin: 0 0 8px; }
+  .field + label { margin-top: 18px; }
+  .field {
+    width: 100%; max-width: 380px; padding: 14px 16px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    font: 500 17px var(--body); outline: none;
+    transition: border-color 200ms, box-shadow 200ms, background 200ms;
+  }
+  .field:hover { background: var(--panel-hi); }
+  .field:focus { border-color: var(--lime); box-shadow: 0 0 0 4px var(--lime-dim); }
+
+  .actions { display: flex; gap: 12px; margin-top: 28px; align-items: center; }
+  .btn {
+    border: 0; border-radius: 10px; padding: 14px 26px; cursor: pointer;
+    font: 600 15px var(--body); color: #1a1a1a; background: var(--lime);
+    transition: transform 160ms var(--ease), box-shadow 300ms, filter 200ms;
+  }
+  .btn:hover { box-shadow: 0 8px 30px rgba(209, 254, 23, 0.25); transform: translateY(-1px); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { background: var(--line); color: var(--muted); box-shadow: none; transform: none; cursor: default; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--muted); box-shadow: none; }
+  .btn:focus-visible, .voice:focus-visible, .play:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+  .note { min-height: 22px; margin-top: 12px; font-size: 13px; color: var(--muted); transition: color 200ms; }
+  .note.error { color: var(--error); }
+  .note.good { color: var(--lime); }
+
+  /* ---- voices ---------------------------------------------------------------------- */
+  .voices {
+    max-width: 440px; max-height: 248px; overflow-y: auto; padding-right: 4px;
+    display: flex; flex-direction: column; gap: 6px;
+    /* fade the last visible row so it reads as "more below" */
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+    mask-image: linear-gradient(to bottom, #000 82%, transparent);
+    padding-bottom: 28px;
+  }
+  .voices::-webkit-scrollbar { width: 6px; }
+  .voices::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  .voice {
+    display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 10px;
+    background: var(--panel); border: 1px solid transparent; cursor: pointer; text-align: left;
+    color: var(--text); font: 500 15px var(--body);
+    transition: background 200ms, border-color 200ms, transform 300ms var(--ease);
+  }
+  .voice:hover { background: var(--panel-hi); }
+  .voice.selected { border-color: var(--lime); background: var(--panel-hi); }
+  .voice .name { flex: 1; }
+  .voice .source { font-size: 12px; color: var(--muted); padding: 3px 9px; border-radius: 20px; border: 1px solid var(--line); }
+  .voice.voicebox .source { color: var(--lime); border-color: rgba(209, 254, 23, 0.35); }
+  .play {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: transparent;
+    display: grid; place-items: center; cursor: pointer; color: var(--text); flex: none;
+    transition: background 200ms, border-color 200ms;
+  }
+  .play:hover { border-color: var(--lime); }
+  .play svg { width: 12px; height: 12px; }
+  .bars { display: none; gap: 2px; height: 14px; align-items: flex-end; }
+  .bars b { width: 3px; background: var(--lime); border-radius: 2px; animation: bar 900ms var(--ease) infinite; }
+  .bars b:nth-child(2) { animation-delay: -300ms; } .bars b:nth-child(3) { animation-delay: -600ms; }
+  .voice.playing .bars { display: flex; } .voice.playing .play svg { display: none; }
+  @keyframes bar { 0%, 100% { height: 4px; } 50% { height: 14px; } }
+
+  /* ---- face scan --------------------------------------------------------------------- */
+  .camera {
+    position: relative; width: 100%; max-width: 440px; aspect-ratio: 4 / 3; border-radius: 14px;
+    overflow: hidden; background: var(--panel);
+  }
+  .camera img, .camera canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .camera .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+  .corner { position: absolute; width: 26px; height: 26px; border: 2px solid var(--lime); opacity: 0.9; }
+  .corner.tl { left: 12px; top: 12px; border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
+  .corner.tr { right: 12px; top: 12px; border-left: 0; border-bottom: 0; border-radius: 0 8px 0 0; }
+  .corner.bl { left: 12px; bottom: 12px; border-right: 0; border-top: 0; border-radius: 0 0 0 8px; }
+  .corner.br { right: 12px; bottom: 12px; border-left: 0; border-top: 0; border-radius: 0 0 8px 0; }
+  .scanline {
+    position: absolute; left: 0; right: 0; height: 80px; top: -80px; opacity: 0;
+    background: linear-gradient(to bottom, transparent, rgba(209, 254, 23, 0.18), transparent);
+  }
+  .camera.scanning .scanline { opacity: 1; animation: scan 1.6s var(--ease) infinite; }
+  @keyframes scan { to { top: 100%; } }
+  .ticks { display: flex; gap: 6px; margin-top: 14px; max-width: 440px; }
+  .ticks i { flex: 1; height: 4px; border-radius: 4px; background: var(--line); transition: background 300ms, box-shadow 300ms; }
+  .ticks i.on { background: var(--lime); box-shadow: 0 0 10px rgba(209, 254, 23, 0.5); }
+
+  /* ---- hello --------------------------------------------------------------------------- */
+  #s-hello h1 { font-size: 76px; }
+  #s-hello .lead { color: var(--lime); font-size: 18px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="stage">
+    <div class="brand"><i></i><span id="brand-name">Jarvis</span></div>
+    <canvas id="orb"></canvas>
+  </section>
+
+  <section class="side">
+    <div class="progress" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="progress-caption" id="progress-caption">Step 1 of 3</div>
+
+    <div class="screens">
+      <!-- names -->
+      <form class="screen" id="s-names" autocomplete="off">
+        <h1 data-split>Meet your<br>assistant</h1>
+        <p class="lead">Tell it who you are and choose what to call it.</p>
+        <label for="user-name">Your name</label>
+        <input class="field" id="user-name" maxlength="40" spellcheck="false">
+        <label for="assistant-name">Assistant name</label>
+        <input class="field" id="assistant-name" maxlength="24" spellcheck="false" value="JARVIS">
+        <div class="note" id="names-note" role="status"></div>
+        <div class="actions"><button class="btn" type="submit">Continue</button></div>
+      </form>
+
+      <!-- voice -->
+      <section class="screen" id="s-voice">
+        <h1 data-split id="voice-title">Give it<br>a voice</h1>
+        <p class="lead">Select a voice and press play to hear it. Voicebox voices show up here while the Voicebox app is open.</p>
+        <div class="voices" id="voices" role="listbox" aria-label="Voices"></div>
+        <div class="note" id="voice-note" role="status"></div>
+        <div class="actions">
+          <button class="btn" id="voice-continue">Use this voice</button>
+          <button class="btn ghost" id="voice-refresh">Refresh list</button>
+        </div>
+      </section>
+
+      <!-- face -->
+      <section class="screen" id="s-face">
+        <h1 data-split>Let it<br>know you</h1>
+        <p class="lead">Look straight at the camera in good light. Ten quick photos become your face lock.</p>
+        <div class="camera" id="camera">
+          <div class="empty" id="camera-empty">Starting the camera</div>
+          <img id="camera-img" alt="">
+          <canvas id="camera-overlay"></canvas>
+          <div class="scanline"></div>
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        </div>
+        <div class="ticks" id="ticks"></div>
+        <div class="note" id="face-note" role="status"></div>
+        <div class="actions"><button class="btn" id="scan-btn" disabled>Start scan</button></div>
+      </section>
+
+      <!-- hello -->
+      <section class="screen" id="s-hello">
+        <h1 data-split id="hello-title">Hello</h1>
+        <p class="lead" id="hello-sub"></p>
+        <div class="actions"><button class="btn" id="done-btn">Let's go</button></div>
+      </section>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ======================================================================================
+   The orb: a particle sphere that stands in for the assistant. Its "energy" and shape
+   follow the setup step; everything is time-based so motion stays smooth at any FPS.
+   ====================================================================================== */
+const Orb = (() => {
+  const canvas = document.getElementById('orb');
+  const ctx = canvas.getContext('2d');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const N = 1100;
+  const pts = [];
+  for (let i = 0; i < N; i++) {                       // Fibonacci sphere: even coverage, no clumps
+    const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), t = i * 2.399963;
+    pts.push({ x: Math.cos(t) * r, y, z: Math.sin(t) * r, seed: Math.random() * 6.283 });
+  }
+  const target = { energy: 0.25, spread: 0, ripple: 0, scale: 1, shift: 0 };
+  const now = { ...target };
+  let w = 0, h = 0, dpr = 1, last = performance.now(), rot = 0;
+
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = canvas.clientWidth; h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+  }
+  addEventListener('resize', resize); resize();
+
+  function frame(t) {
+    const dt = Math.min((t - last) / 1000, 0.05); last = t;
+    for (const k in target) now[k] += (target[k] - now[k]) * (1 - Math.exp(-dt * 4));  // critically damped glide
+    rot += dt * (reduced ? 0.04 : 0.18 + now.energy * 0.9);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2 + now.shift * w, cy = h / 2, R = Math.min(w, h) * 0.3 * now.scale;
+    const cr = Math.cos(rot), sr = Math.sin(rot), tilt = 0.38, ct = Math.cos(tilt), st = Math.sin(tilt);
+    const time = t / 1000;
+
+    // inner glow
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.25);
+    g.addColorStop(0, `rgba(209,254,23,${0.10 + now.energy * 0.12})`);
+    g.addColorStop(1, 'rgba(209,254,23,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 1.3, 0, 6.283); ctx.fill();
+
+    for (const p of pts) {
+      // breathing + ripple displacement along the surface normal
+      const wave = Math.sin(time * (1.2 + now.energy * 3) + p.y * 5 + p.seed) * (0.015 + now.energy * 0.05)
+                 + Math.sin(time * 7 - (p.y + 1) * 6) * now.ripple * 0.07;
+      const k = 1 + wave + now.spread * (0.6 + Math.sin(p.seed * 3) * 0.4);
+      let x = p.x * cr - p.z * sr, z = p.x * sr + p.z * cr, y = p.y;
+      const y2 = y * ct - z * st; z = y * st + z * ct; y = y2;
+      const depth = (z + 1) / 2;                          // 0 back .. 1 front
+      const px = cx + x * R * k, py = cy + y * R * k;
+      const size = 0.6 + depth * 1.6;
+      const lime = depth > 0.66 && p.seed < 0.75;         // sparse bright lime points, like light catching the surface
+      ctx.fillStyle = lime ? `rgba(209,254,23,${0.65 + depth * 0.35})`
+                           : `rgba(247,247,248,${0.06 + depth * 0.55 * (1 - now.spread * 0.6)})`;
+      ctx.fillRect(px - size / 2, py - size / 2, size, size);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  return {
+    set(state) { Object.assign(target, state); },
+    pulse() { now.ripple = 1; target.ripple = 0; },
+  };
+})();
+
+/* ---- headline split: each character rises in turn when its screen becomes active ---- */
+function split(el) {
+  const lines = el.innerHTML.split(/<br\s*\/?>/i);
+  el.innerHTML = lines.map(line => {
+    const chars = [...line.trim()].map((c, i) =>
+      `<span class="ch" style="transition-delay:${i * 28}ms">${c === ' ' ? '&nbsp;' : c}</span>`).join('');
+    return `<span class="line">${chars}</span>`;
+  }).join('');
+}
+document.querySelectorAll('[data-split]').forEach(split);
+function setHeadline(el, html) { el.innerHTML = html; split(el); }
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+
+/* ---- screens + progress ---------------------------------------------------------------- */
+const STEPS = ['s-names', 's-voice', 's-face', 's-hello'];
+const ORB_STATE = {
+  's-names': { energy: 0.25, spread: 0, scale: 1, shift: 0 },
+  's-voice': { energy: 0.45, spread: 0, scale: 1.05, shift: 0 },
+  's-face':  { energy: 0.6, spread: 0.08, scale: 0.85, shift: 0 },
+  's-hello': { energy: 0.9, spread: 0.35, scale: 1.2, shift: 0 },
+};
+let current = null;
+function show(id) {
+  const next = document.getElementById(id);
+  if (current) {
+    const prev = current; prev.classList.remove('active'); prev.classList.add('leaving');
+    setTimeout(() => prev.classList.remove('leaving'), 700);
+  }
+  requestAnimationFrame(() => next.classList.add('active'));
+  current = next;
+  const step = STEPS.indexOf(id);
+  document.querySelectorAll('.progress span').forEach((s, i) => s.classList.toggle('done', i < step || id === 's-hello'));
+  document.getElementById('progress-caption').textContent = step < 3 ? `Step ${step + 1} of 3` : 'All set';
+  Orb.set(ORB_STATE[id]);
+}
+const api = () => window.pywebview.api;
+const state = { user: '', assistant: 'JARVIS', voices: [], selected: 0 };
+
+/* ---- step 1: names ------------------------------------------------------------------- */
+const namesForm = document.getElementById('s-names');
+const assistantInput = document.getElementById('assistant-name');
+assistantInput.addEventListener('input', () => {
+  document.getElementById('brand-name').textContent = assistantInput.value.trim() || 'Jarvis';
+});
+document.getElementById('user-name').addEventListener('input', () => {
+  Orb.pulse();
+  const note = document.getElementById('names-note'); note.textContent = ''; note.className = 'note';
+});
+namesForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const user = document.getElementById('user-name').value.trim();
+  const note = document.getElementById('names-note');
+  if (!user) { note.textContent = 'Enter your name to continue.'; note.className = 'note error'; document.getElementById('user-name').focus(); return; }
+  state.user = user;
+  state.assistant = assistantInput.value.trim() || 'JARVIS';
+  setHeadline(document.getElementById('voice-title'), `Give ${escapeHtml(state.assistant)}<br>a voice`);
+  show('s-voice');
+  loadVoices();
+});
+
+/* ---- step 2: voice ------------------------------------------------------------------- */
+const voicesEl = document.getElementById('voices');
+const voiceNote = document.getElementById('voice-note');
+const PLAY = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M2.5 1.2v9.6L10.5 6z"/></svg>';
+async function loadVoices() {
+  voiceNote.textContent = 'Looking for voices'; voiceNote.className = 'note';
+  const result = await api().list_voices();
+  state.voices = result.voices;
+  state.selected = Math.min(state.selected, Math.max(0, state.voices.length - 1));
+  voicesEl.innerHTML = state.voices.map((v, i) => `
+    <div class="voice ${v.source !== 'system' ? 'voicebox' : ''} ${i === state.selected ? 'selected' : ''}"
+         role="option" tabindex="0" aria-selected="${i === state.selected}" data-i="${i}">
+      <button class="play" data-play="${i}" aria-label="Play ${escapeHtml(v.name)}">${PLAY}</button>
+      <span class="bars"><b></b><b></b><b></b></span>
+      <span class="name">${escapeHtml(v.name)}</span>
+      <span class="source">${v.source === 'voicebox' ? 'Voicebox' : v.source === 'kokoro' ? 'Natural' : 'Built-in'}</span>
+    </div>`).join('');
+  voiceNote.textContent = result.voicebox_count
+    ? `${result.voicebox_count} Voicebox voice${result.voicebox_count === 1 ? '' : 's'} found.`
+    : 'Voicebox isn’t open, so only built-in voices are listed. Open it and press Refresh list.';
+  voiceNote.className = result.voicebox_count ? 'note good' : 'note';
+}
+function selectVoice(i) {
+  state.selected = i;
+  voicesEl.querySelectorAll('.voice').forEach((el, j) => {
+    el.classList.toggle('selected', j === i); el.setAttribute('aria-selected', j === i);
+  });
+}
+voicesEl.addEventListener('click', e => {
+  const play = e.target.closest('[data-play]');
+  const row = e.target.closest('.voice');
+  if (!row) return;
+  const i = +row.dataset.i;
+  selectVoice(i);
+  if (play) previewVoice(i);
+});
+voicesEl.addEventListener('keydown', e => {
+  const row = e.target.closest('.voice'); if (!row) return;
+  const i = +row.dataset.i;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = Math.max(0, Math.min(state.voices.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+    selectVoice(n); voicesEl.children[n].focus();
+  } else if (e.key === ' ' ) { e.preventDefault(); previewVoice(i); }
+  else if (e.key === 'Enter') { e.preventDefault(); selectVoice(i); chooseVoice(); }
+});
+function previewVoice(i) {
+  const row = voicesEl.children[i];
+  voicesEl.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
+  row.classList.add('playing');
+  Orb.set({ ripple: 0.8, energy: 0.8 });
+  if (state.voices[i].source === 'voicebox') { voiceNote.textContent = 'Voicebox is generating the preview. The first one can take a while.'; voiceNote.className = 'note'; }
+  api().preview_voice(i, state.user, state.assistant);
+}
+window.onPreviewDone = (error) => {               // called from Python when speech ends
+  voicesEl.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
+  Orb.set({ ripple: 0, energy: ORB_STATE['s-voice'].energy });
+  if (error) { voiceNote.textContent = error; voiceNote.className = 'note error'; }
+};
+async function chooseVoice() {
+  await api().set_choices(state.user, state.assistant, state.selected);
+  show('s-face');
+  startCamera();
+}
+document.getElementById('voice-continue').addEventListener('click', chooseVoice);
+document.getElementById('voice-refresh').addEventListener('click', loadVoices);
+
+/* ---- step 3: face scan ----------------------------------------------------------------- */
+const camera = document.getElementById('camera');
+const camImg = document.getElementById('camera-img');
+const overlay = document.getElementById('camera-overlay');
+const scanBtn = document.getElementById('scan-btn');
+const faceNote = document.getElementById('face-note');
+const ticks = document.getElementById('ticks');
+let needed = 10, scanning = false;
+function drawTicks(count) {
+  ticks.innerHTML = Array.from({ length: needed }, (_, i) => `<i class="${i < count ? 'on' : ''}"></i>`).join('');
+}
+async function startCamera() {
+  scanning = false; camera.classList.remove('scanning');
+  scanBtn.textContent = 'Start scan'; scanBtn.disabled = true;
+  faceNote.textContent = ''; faceNote.className = 'note';
+  document.getElementById('camera-empty').textContent = 'Starting the camera';
+  const info = await api().start_camera();
+  needed = info.needed; drawTicks(0);
+}
+window.onFrame = (f) => {
+  document.getElementById('camera-empty').textContent = '';
+  camImg.src = f.jpeg;
+  const ctx = overlay.getContext('2d');
+  overlay.width = overlay.clientWidth * 2; overlay.height = overlay.clientHeight * 2;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (f.face) {
+    // face is in mirrored, normalised coordinates; draw rounded lime brackets around it
+    const [x, y, w, h] = [f.face[0] * overlay.width, f.face[1] * overlay.height, f.face[2] * overlay.width, f.face[3] * overlay.height];
+    ctx.strokeStyle = 'rgba(209,254,23,0.95)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    const L = Math.min(w, h) * 0.22;
+    [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([px, py, sx, sy]) => {
+      ctx.beginPath(); ctx.moveTo(px, py + sy * L); ctx.lineTo(px, py); ctx.lineTo(px + sx * L, py); ctx.stroke();
+    });
+  }
+  if (!scanning) {
+    scanBtn.disabled = false;
+    faceNote.textContent = f.face ? 'Face found. Press Start scan.' : 'No face in view yet.';
+    faceNote.className = f.face ? 'note good' : 'note';
+  }
+};
+window.onScanProgress = (count) => { drawTicks(count); faceNote.textContent = `Scanning, ${count} of ${needed} photos`; faceNote.className = 'note good'; Orb.pulse(); };
+window.onCameraError = (message) => {
+  scanning = false; camera.classList.remove('scanning');
+  camImg.removeAttribute('src'); document.getElementById('camera-empty').textContent = 'No camera picture';
+  faceNote.textContent = message; faceNote.className = 'note error';
+  scanBtn.textContent = 'Retry'; scanBtn.disabled = false;
+};
+window.onScanDone = (ok, message) => {
+  scanning = false; camera.classList.remove('scanning');
+  if (!ok) { faceNote.textContent = message; faceNote.className = 'note error'; scanBtn.disabled = false; scanBtn.textContent = 'Start scan'; return; }
+  setHeadline(document.getElementById('hello-title'), `Hello,<br>${escapeHtml(state.user)}`);
+  document.getElementById('hello-sub').textContent = `${state.assistant} is ready.`;
+  show('s-hello');
+  setTimeout(() => api().say_hello(), 450);
+};
+scanBtn.addEventListener('click', () => {
+  if (scanBtn.textContent === 'Retry') { startCamera(); return; }
+  scanning = true; scanBtn.disabled = true; camera.classList.add('scanning');
+  drawTicks(0); api().start_scan();
+});
+
+/* ---- step 4: hello ---------------------------------------------------------------------- */
+document.getElementById('done-btn').addEventListener('click', () => api().finish());
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && current && current.id === 's-hello') api().finish();
+});
+
+/* ---- start ------------------------------------------------------------------------------ */
+window.addEventListener('pywebviewready', async () => {
+  const d = await api().defaults();
+  assistantInput.value = d.assistant;
+  document.getElementById('brand-name').textContent = d.assistant;
+  show('s-names');
+  setTimeout(() => document.getElementById('user-name').focus(), 400);
+});
+</script>
+</body>
+</html>
