@@ -50,6 +50,11 @@ class Sleep(Exception):
     """Raised by the go_to_sleep tool once the goodbye has been said."""
 
 
+def _applescript_text(text) -> str:
+    """text as an AppleScript string literal, so quotes in it can't end the string early."""
+    return '"' + str(text).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
 def _osascript(script):
     out = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=15)
     if out.returncode != 0:
@@ -74,7 +79,7 @@ def quit_app(name):
         return windows.quit_app(name)
     if not IS_MAC:
         return 'Quitting apps is not supported on this computer.'
-    _osascript(f'tell application "{name}" to quit')
+    _osascript(f'tell application {_applescript_text(name)} to quit')
     return f'Quit {name}.'
 
 

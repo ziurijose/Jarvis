@@ -56,6 +56,14 @@ def main():
             print(f'--- {folder}: flake8 skipped (install flake8 or uv to run it)\n')
     results.append(run('Windows: unit tests', [python_for('Windows'), '-m', 'unittest'],
                        os.path.join(HERE, 'Windows')))
+    # The Mac folder's own tests (the shared ones ran above). The whole Mac suite only runs on a
+    # Mac or Linux (CI): on Windows its brain.py loads windows.py, which only the Windows folder has.
+    mac_only = sorted(name[:-3] for name in os.listdir(os.path.join(HERE, 'Mac'))
+                      if name.startswith('test_') and name.endswith('.py')
+                      and not os.path.exists(os.path.join(HERE, 'Windows', name)))
+    if mac_only:
+        results.append(run('Mac: its own unit tests', [python_for('Windows'), '-m', 'unittest'] + mac_only,
+                           os.path.join(HERE, 'Mac')))
     passed = all(results)
     print('ALL CHECKS PASSED' if passed else 'SOME CHECKS FAILED')
     return 0 if passed else 1

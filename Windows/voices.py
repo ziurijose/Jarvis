@@ -265,11 +265,17 @@ class Speech:
                     self.voice = None
             elif IS_MAC:
                 voice = best_mac_voice()
-                self._process = subprocess.Popen(['say'] + (['-v', voice] if voice else []) + ['-r', '195', item[1]])
+                self._process = subprocess.Popen(say_command(voice, item[1]))
                 while self._process.poll() is None and not self.stopped.is_set():
                     time.sleep(0.03)
             else:
                 say_isolated({'source': 'system'} if not self.voice else self.voice, item[1])
+
+
+def say_command(voice, text: str) -> list:
+    """The Mac's say command for text. Text starting with "-" gets a space in front, so say
+    reads it aloud instead of taking it as an option (such as -o, which writes a file)."""
+    return ['say'] + (['-v', voice] if voice else []) + ['-r', '195', ' ' + text if text.startswith('-') else text]
 
 
 def speakable(text: str) -> str:
@@ -308,7 +314,7 @@ def best_mac_voice():
 
 def mac_say(text: str) -> None:
     voice = best_mac_voice()
-    subprocess.run(['say'] + (['-v', voice] if voice else []) + ['-r', '195', text])
+    subprocess.run(say_command(voice, text))
 
 
 # ---- listing -------------------------------------------------------------------------
