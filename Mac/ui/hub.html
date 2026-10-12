@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #0b0d0f;
+    --panel: #14171a;
+    --panel-hi: #1b1f23;
+    --line: #23272c;
+    --line-hi: #343a41;
+    --text: #f7f7f8;
+    --muted: #8c939c;
+    --lime: #d1fe17;
+    --lime-dim: rgba(209, 254, 23, 0.14);
+    --lime-faint: rgba(209, 254, 23, 0.06);
+    --error: #ff6b5e;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --display: "Space Grotesk", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--void); color: var(--text);
+    font: 15px/1.55 var(--body); overflow: hidden; user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+
+  .app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
+
+  /* ---- sidebar ---------------------------------------------------------------------- */
+  .side {
+    border-right: 1px solid var(--line); padding: 26px 16px 20px; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, rgba(209,254,23,0.025), transparent 40%);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 10px 30px;
+           font: 700 15px/1 var(--display); letter-spacing: -0.03em; text-transform: uppercase; }
+  .brand i { width: 9px; height: 9px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 14px var(--lime); }
+  .nav { display: flex; flex-direction: column; gap: 4px; }
+  .nav button {
+    position: relative; display: flex; align-items: center; gap: 12px; padding: 11px 12px;
+    border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer; text-align: left;
+    font-weight: 500; transition: background 200ms, color 200ms;
+  }
+  .nav button svg { width: 18px; height: 18px; flex: none; }
+  .nav button:hover { background: var(--panel); color: var(--text); }
+  .nav button.active { background: var(--panel-hi); color: var(--text); }
+  .nav button.active::before {
+    content: ""; position: absolute; left: -16px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0;
+    background: var(--lime); box-shadow: 0 0 12px var(--lime);
+  }
+  .nav button.active svg { color: var(--lime); }
+  .side-status { margin-top: auto; padding: 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  .side-status .label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+  .side-status .value { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transition: background 300ms, box-shadow 300ms; }
+  .dot.on { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
+  .dot.live { animation: beat 1.1s var(--ease) infinite; }
+  @keyframes beat { 50% { transform: scale(1.6); opacity: 0.6; } }
+
+  /* ---- pages ------------------------------------------------------------------------ */
+  .main { position: relative; overflow: hidden; }
+  .page { position: absolute; inset: 0; opacity: 0; transform: translateY(14px); pointer-events: none;
+          transition: opacity 450ms var(--ease), transform 650ms var(--ease); }
+  .page.active { opacity: 1; transform: none; pointer-events: auto; }
+
+  .kicker { font-size: 12px; color: var(--lime); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600; }
+  .display { font: 700 clamp(64px, 11vw, 148px)/0.86 var(--display); letter-spacing: -0.055em; text-transform: uppercase; }
+  .display .ch { display: inline-block; transform: translateY(105%); transition: transform 900ms var(--ease); }
+  .page.active .display .ch { transform: none; }
+  .line-mask { display: block; overflow: hidden; padding-bottom: 0.06em; white-space: nowrap; }
+
+  /* home */
+  #orb { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .home::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+                 background: radial-gradient(ellipse at 62% 46%, transparent 35%, var(--void) 80%); }
+  .home-copy { position: absolute; left: 56px; bottom: 56px; z-index: 2; max-width: 70%; }
+  .home-copy .kicker { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .home-copy .sub { color: var(--muted); font-size: 16px; margin: 18px 0 26px; }
+  .home-copy .sub b { color: var(--text); font-weight: 500; }
+
+  /* settings */
+  .settings { overflow-y: auto; padding: 48px 56px 140px; }
+  .settings::-webkit-scrollbar { width: 8px; }
+  .settings::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+  .settings h1 { font: 700 64px/0.9 var(--display); letter-spacing: -0.05em; text-transform: uppercase; }
+  .settings .lead { color: var(--muted); margin: 12px 0 34px; }
+  .section {
+    display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; padding: 28px 0;
+    border-top: 1px solid var(--line);
+  }
+  .section h2 { font: 700 20px/1.1 var(--display); letter-spacing: -0.03em; text-transform: uppercase; }
+  .section .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; }
+  .fields .wide { grid-column: 1 / -1; }
+  label.field-label { display: block; color: var(--muted); font-size: 12.5px; font-weight: 500; margin-bottom: 7px; }
+
+  .input, select.input {
+    width: 100%; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+    outline: none; font-weight: 500; user-select: text; appearance: none;
+    transition: border-color 200ms, box-shadow 200ms, background 200ms;
+  }
+  select.input { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+                 background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 36px; cursor: pointer; }
+  select.input option { background: var(--panel); }
+  .input:hover { background-color: var(--panel-hi); }
+  .input:focus { border-color: var(--lime); box-shadow: 0 0 0 4px var(--lime-dim); }
+  .input::placeholder { color: #565d66; }
+
+  /* segmented choice */
+  .seg { display: inline-flex; padding: 4px; gap: 4px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  .seg button { border: 0; border-radius: 9px; padding: 9px 16px; background: transparent; color: var(--muted); cursor: pointer;
+                font-weight: 500; transition: background 220ms var(--ease), color 220ms; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--lime); color: #1a1a1a; }
+  .seg-note { color: var(--muted); font-size: 12.5px; margin-top: 8px; min-height: 19px; }
+
+  /* switch rows */
+  .switch-row { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 12px;
+                background: var(--panel); border: 1px solid var(--line); cursor: pointer; transition: border-color 200ms; }
+  .switch-row:hover { border-color: var(--line-hi); }
+  .switch-row .text { flex: 1; }
+  .switch-row .text b { display: block; font-weight: 500; }
+  .switch-row .text span { color: var(--muted); font-size: 12.5px; }
+  .switch { position: relative; width: 44px; height: 26px; border-radius: 26px; background: var(--line-hi); flex: none; transition: background 250ms; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+                   background: var(--text); transition: transform 300ms var(--ease); }
+  .switch.on { background: var(--lime); }
+  .switch.on::after { transform: translateX(18px); background: #1a1a1a; }
+
+  /* slider */
+  .slider-row { display: flex; align-items: center; gap: 14px; }
+  input[type=range] { flex: 1; appearance: none; height: 4px; border-radius: 4px; background: var(--line-hi); outline: none; }
+  input[type=range]::-webkit-slider-thumb { appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--lime);
+                                             box-shadow: 0 0 0 5px var(--lime-dim); cursor: pointer; }
+  .slider-row output { min-width: 92px; color: var(--muted); font-size: 13px; text-align: right; }
+
+  /* voices */
+  .voices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 300px; overflow-y: auto; padding: 2px 6px 2px 2px; }
+  .voices::-webkit-scrollbar { width: 6px; }
+  .voices::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  .voice { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--panel);
+           border: 1px solid transparent; cursor: pointer; text-align: left; transition: background 200ms, border-color 200ms; }
+  .voice:hover { background: var(--panel-hi); }
+  .voice.selected { border-color: var(--lime); background: var(--panel-hi); }
+  .voice .name { flex: 1; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .voice .source { font-size: 11px; color: var(--muted); padding: 2px 8px; border-radius: 20px; border: 1px solid var(--line); }
+  .voice.selected .source { color: var(--lime); border-color: rgba(209, 254, 23, 0.35); }
+  .play { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-hi); background: transparent; flex: none;
+          display: grid; place-items: center; cursor: pointer; transition: border-color 200ms, background 200ms; }
+  .play:hover { border-color: var(--lime); background: var(--lime-faint); }
+  .play svg { width: 11px; height: 11px; }
+  .bars { display: none; gap: 2px; height: 13px; align-items: flex-end; }
+  .bars b { width: 3px; background: var(--lime); border-radius: 2px; animation: bar 900ms var(--ease) infinite; }
+  .bars b:nth-child(2) { animation-delay: -300ms; } .bars b:nth-child(3) { animation-delay: -600ms; }
+  .voice.playing .bars { display: flex; } .voice.playing .play svg { display: none; }
+  @keyframes bar { 0%, 100% { height: 4px; } 50% { height: 13px; } }
+
+  /* memory */
+  .memory { overflow-y: auto; padding: 48px 56px 80px; }
+  .memory::-webkit-scrollbar { width: 8px; }
+  .memory::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+  .memory h1 { font: 700 64px/0.9 var(--display); letter-spacing: -0.05em; text-transform: uppercase; }
+  .memory .lead { color: var(--muted); margin: 12px 0 0; }
+  .memory-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+  .count { text-align: right; font: 700 64px/0.9 var(--display); letter-spacing: -0.05em; color: var(--lime); }
+  .count small { display: block; font: 500 12px var(--body); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+  .teach { display: flex; gap: 10px; }
+  .teach .input { flex: 1; }
+  .facts { list-style: none; padding: 0; margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .fact {
+    display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 18px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    animation: factIn 500ms var(--ease) both; transition: border-color 200ms, opacity 300ms, transform 300ms var(--ease);
+  }
+  .fact:hover { border-color: var(--line-hi); }
+  .fact .num { font: 700 13px var(--display); color: var(--muted); min-width: 24px; }
+  .fact .text { flex: 1; min-width: 0; outline: none; border-radius: 6px; padding: 2px 4px; margin: -2px -4px; user-select: text; }
+  .fact .text:focus { background: var(--panel-hi); box-shadow: 0 0 0 2px var(--lime-dim); }
+  .fact.leaving { opacity: 0; transform: translateX(24px); }
+  .icon-btn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--muted);
+              display: grid; place-items: center; cursor: pointer; flex: none; opacity: 0; transition: opacity 200ms, color 200ms, border-color 200ms; }
+  .fact:hover .icon-btn, .icon-btn:focus-visible { opacity: 1; }
+  .icon-btn:hover { color: var(--text); border-color: var(--line-hi); }
+  .icon-btn.danger:hover { color: var(--error); border-color: rgba(255, 107, 94, 0.4); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  @keyframes factIn { from { opacity: 0; transform: translateY(8px); } }
+  .empty { margin-top: 48px; padding: 48px; border: 1px dashed var(--line-hi); border-radius: 16px; text-align: center; }
+  .empty h2 { font: 700 22px/1.1 var(--display); letter-spacing: -0.03em; text-transform: uppercase; margin-bottom: 8px; }
+  .empty p { color: var(--muted); }
+  .toast .undo { border: 0; background: transparent; color: var(--lime); font-weight: 600; cursor: pointer; padding: 0 0 0 8px; }
+
+  .hidden { display: none !important; }
+
+  /* buttons */
+  .btn { border: 0; border-radius: 12px; padding: 13px 24px; cursor: pointer; font-weight: 600; color: #1a1a1a; background: var(--lime);
+         transition: transform 160ms var(--ease), box-shadow 300ms, opacity 200ms; }
+  .btn:hover { box-shadow: 0 10px 34px rgba(209, 254, 23, 0.28); transform: translateY(-1px); }
+  .btn:active { transform: scale(0.97); }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line-hi); }
+  .btn.ghost:hover { border-color: var(--muted); box-shadow: none; }
+  .btn.danger:hover { border-color: var(--error); color: var(--error); }
+  .btn[aria-busy=true] { opacity: 0.6; pointer-events: none; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* save bar */
+  .savebar {
+    position: absolute; left: 50%; bottom: 26px; z-index: 5; display: flex; align-items: center; gap: 12px;
+    padding: 10px 10px 10px 22px; border-radius: 16px; background: rgba(20, 23, 26, 0.92); border: 1px solid var(--line-hi);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55); backdrop-filter: blur(12px);
+    transform: translate(-50%, 140%); transition: transform 500ms var(--ease);
+  }
+  .savebar.show { transform: translate(-50%, 0); }
+  .savebar .msg { color: var(--muted); font-size: 14px; margin-right: 8px; white-space: nowrap; }
+  .savebar .btn { white-space: nowrap; }
+  .savebar .msg.error { color: var(--error); }
+
+  /* toast */
+  .toast { position: absolute; top: 22px; right: 24px; z-index: 6; display: flex; align-items: center; gap: 10px;
+           padding: 12px 16px; border-radius: 12px; background: var(--panel-hi); border: 1px solid var(--line-hi);
+           transform: translateY(-160%); transition: transform 450ms var(--ease); font-weight: 500; }
+  .toast.show { transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page, .display .ch, .savebar, .toast { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><i></i><span id="brand-name">JARVIS</span></div>
+    <nav class="nav" aria-label="Pages">
+      <button data-page="home" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Home</button>
+      <button data-page="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Settings</button>
+      <button data-page="memory">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8V16h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3z"/></svg>Memory</button>
+    </nav>
+    <div class="side-status" aria-live="polite">
+      <div class="label">Status</div>
+      <div class="value"><span class="dot" id="side-dot"></span><span id="side-status">Checking…</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- ================================== HOME ================================== -->
+    <section class="page home active" id="page-home" aria-label="Home">
+      <canvas id="orb"></canvas>
+      <div class="home-copy">
+        <div class="kicker"><span class="dot on" id="home-dot"></span><span id="home-kicker">Checking</span></div>
+        <h1 class="display" id="home-name">JARVIS</h1>
+        <p class="sub" id="home-sub">&nbsp;</p>
+        <div class="row" id="home-actions"></div>
+      </div>
+    </section>
+
+    <!-- ================================ SETTINGS ================================ -->
+    <section class="page settings" id="page-settings" aria-label="Settings">
+      <h1>Settings</h1>
+      <p class="lead">Make it yours. Changes take effect when JARVIS restarts.</p>
+
+      <div class="section">
+        <div><h2>You and it</h2><p class="hint">What it calls you, and what you call it. "Hey Jarvis" always works too.</p></div>
+        <div class="fields">
+          <div><label class="field-label" for="user_name">Your name</label><input class="input" id="user_name" maxlength="30" spellcheck="false"></div>
+          <div><label class="field-label" for="assistant_name">Its name</label><input class="input" id="assistant_name" maxlength="30" spellcheck="false"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div><h2>Voice</h2><p class="hint">Press play to hear one. The selected voice is the one it speaks with.</p></div>
+        <div>
+          <div class="voices" id="voices" role="radiogroup" aria-label="Voice"></div>
+          <div class="fields" style="margin-top:18px">
+            <div><label class="field-label" for="language">Language it listens for</label><select class="input" id="language"></select></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div><h2>Brain</h2><p class="hint">Claude Code uses your Claude plan. An API key is billed to your Claude Console account.</p></div>
+        <div class="fields">
+          <div class="wide">
+            <label class="field-label">Thinks with</label>
+            <div class="seg" id="brain" role="radiogroup">
+              <button data-value="code">Claude Code</button><button data-value="api">API key</button>
+            </div>
+          </div>
+          <div class="wide" id="key-row">
+            <label class="field-label" for="api_key">API key</label>
+            <input class="input" id="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+            <div class="seg-note" id="key-note"></div>
+          </div>
+          <div><label class="field-label" for="model">Model</label><select class="input" id="model"></select></div>
+          <div>
+            <label class="field-label">Thinking</label>
+            <div class="seg" id="thinking" role="radiogroup">
+              <button data-value="fast">Fast</button><button data-value="balanced">Balanced</button><button data-value="deep">Deep</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div><h2>Listening</h2><p class="hint">How you wake it, and how it hears you.</p></div>
+        <div class="fields">
+          <div class="wide switch-row" data-switch="wake_word"><div class="text"><b>"Hey Jarvis" detector</b><span>Always listening for "Hey Jarvis". Off: it still wakes to its name, a bit slower.</span></div><div class="switch"></div></div>
+          <div class="wide switch-row" data-switch="barge_in"><div class="text"><b>Talk over it to interrupt</b><span>Off: only "Hey Jarvis" or the hotkey stops it mid-sentence.</span></div><div class="switch"></div></div>
+          <div><label class="field-label" for="microphone">Microphone</label><select class="input" id="microphone"></select></div>
+          <div><label class="field-label" for="hotkey">Push-to-talk hotkey</label><input class="input" id="hotkey" spellcheck="false" placeholder="&lt;ctrl&gt;+&lt;alt&gt;+j"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div><h2>Security</h2><p class="hint">The face lock checks it's you when JARVIS starts.</p></div>
+        <div class="fields">
+          <div class="wide switch-row" data-switch="face_lock"><div class="text"><b>Face lock</b><span>Look at the camera to unlock JARVIS at start-up.</span></div><div class="switch"></div></div>
+          <div class="wide" id="strict-row">
+            <label class="field-label" for="face_strictness">How strict</label>
+            <div class="slider-row"><input type="range" id="face_strictness" min="40" max="120" step="5"><output id="strict-out"></output></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div><h2>System</h2><p class="hint">Where it lives on this computer.</p></div>
+        <div class="fields">
+          <div class="wide switch-row" data-switch="start_at_login"><div class="text"><b>Start when I sign in</b><span>JARVIS starts by itself, with no window.</span></div><div class="switch"></div></div>
+          <div class="wide switch-row" data-switch="menu_bar"><div class="text"><b>Tray icon</b><span>The icon by the clock, with Talk, Open hub and Quit.</span></div><div class="switch"></div></div>
+          <div><label class="field-label" for="city">Your city</label><input class="input" id="city" spellcheck="false" placeholder="Found automatically"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================= MEMORY ================================= -->
+    <section class="page memory" id="page-memory" aria-label="Memory">
+      <div class="memory-head">
+        <div>
+          <h1>Memory</h1>
+          <p class="lead">What it knows about you. It reads these at the start of every conversation.</p>
+        </div>
+        <div class="count"><span id="fact-count">0</span><small>facts</small></div>
+      </div>
+      <form class="teach" id="teach" autocomplete="off">
+        <input class="input" id="new-fact" maxlength="300" spellcheck="true" placeholder="Teach it something, like &quot;my sister's name is Ana&quot;">
+        <button class="btn" type="submit">Remember</button>
+      </form>
+      <p class="seg-note" id="teach-note"></p>
+      <ol class="facts" id="facts"></ol>
+      <div class="empty hidden" id="facts-empty">
+        <h2>Nothing remembered yet</h2>
+        <p>Say "remember that I take my coffee black", or add a fact above.</p>
+      </div>
+    </section>
+
+    <div class="savebar" id="savebar" role="region" aria-label="Unsaved changes">
+      <span class="msg" id="save-msg">You have unsaved changes</span>
+      <button class="btn ghost" id="discard">Discard</button>
+      <button class="btn" id="save">Save</button>
+    </div>
+    <div class="toast" id="toast" role="status"><span class="dot on"></span><span id="toast-text"></span><button class="undo hidden" id="toast-undo">Undo</button></div>
+  </main>
+</div>
+<script src="orb.js"></script>
+<script src="hub.js"></script>
+</body>
+</html>
