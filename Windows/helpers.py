@@ -74,10 +74,10 @@ def hud(command: str) -> None:
         if _hud_process is None or _hud_process.poll() is not None:
             hud_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hud.py')
             _hud_process = subprocess.Popen([sys.executable, hud_path, HUD_TITLE],
-                                            stdin=subprocess.PIPE, text=True)
+                                            stdin=subprocess.PIPE, encoding='utf-8', errors='replace')
         _hud_process.stdin.write(' '.join(command.split()) + '\n')
         _hud_process.stdin.flush()
-    except OSError:
+    except (OSError, ValueError):
         pass  # the HUD is cosmetic; JARVIS keeps working without it
 
 

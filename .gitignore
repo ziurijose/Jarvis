@@ -149,6 +149,9 @@ user_settings.json
 memory.json
 screen.png
 jarvis.log
+jarvis.prev.log
+malicious_urls.cache
+malicious_urls.cache.tmp
 
 # JARVIS: personal data and downloads
 user_settings.json

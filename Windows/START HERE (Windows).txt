@@ -10,14 +10,14 @@ JARVIS - voice assistant for your Windows PC
 
    If Windows says "Windows protected your PC": click "More info", then "Run anyway".
 
-3. A setup window appears. Type your name, pick a name for your assistant, choose its voice,
-   then let it scan your face. That scan is the face lock: JARVIS starts only for you.
+3. A setup window appears. Type your name, pick a name for your assistant and choose its
+   voice. (A face lock, so JARVIS starts only for you, can be turned on later in the hub.)
 
 4. Optional: JARVIS answers with a free AI model on your PC and hands the hardest requests to
    Claude Code. To let it, install Claude Code (https://claude.com/claude-code) and sign in
    once. No API key is needed. (The free model needs Node.js: https://nodejs.org)
 
-5. Face the camera. JARVIS greets you. Then just say "Hey" and its name (the one you picked,
+5. JARVIS greets you. Then just say "Hey" and its name (the one you picked,
    or "Jarvis") and what you want, in one breath: "Hey Jarvis, what's the weather tomorrow?"
 
 Talking to JARVIS

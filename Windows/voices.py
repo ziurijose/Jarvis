@@ -176,9 +176,11 @@ class Speech:
         while True:
             # The first piece may end at a comma, so the voice starts sooner.
             ends = r'[.!?;:,](?=\s)|\n' if not self.queued else r'[.!?;:](?=\s)|\n'
-            match = re.search(ends, self.pending)
-            if not match or (match.end() < 25 and '\n' not in self.pending[:match.end()]):
-                break  # keep tiny pieces ("Sure.") together with what follows
+            # Tiny pieces ("Sure.") stay with what follows: cut at the first end past them.
+            match = next((m for m in re.finditer(ends, self.pending)
+                          if m.end() >= 25 or '\n' in self.pending[:m.end()]), None)
+            if not match:
+                break
             self._queue(self.pending[:match.end()])
             self.pending = self.pending[match.end():]
 
@@ -201,6 +203,11 @@ class Speech:
 
     def stop(self) -> None:
         self.stopped.set()
+        self.sentences.put(None)  # wakes the generator if it is waiting for text
+        try:
+            self.ready.put_nowait(None)  # wakes the player if it is waiting for a sentence
+        except queue.Full:
+            pass  # it has sentences waiting, so it isn't blocked, and sees stopped next
         playback.stop()
         if self._process and self._process.poll() is None:
             self._process.terminate()
@@ -215,7 +222,7 @@ class Speech:
         while True:
             text = self.sentences.get()
             if text is None or self.stopped.is_set():
-                self.ready.put(None)
+                self._hand_over(None)
                 return
             item = ('text', text)
             if engine is not None:
@@ -223,7 +230,19 @@ class Speech:
                     item = ('pcm',) + tuple(_synthesize(engine, voice, text)) + (text,)
                 except Exception as error:
                     print(f'The natural voice failed ({error}).')
-            self.ready.put(item)
+            if not self._hand_over(item):
+                return
+
+    def _hand_over(self, item) -> bool:
+        """Passes item to the player; False if speech was stopped first (the player has quit,
+        so nothing would ever take it)."""
+        while not self.stopped.is_set():
+            try:
+                self.ready.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                pass
+        return False
 
     def _play(self):
         import time
@@ -246,11 +265,17 @@ class Speech:
                     self.voice = None
             elif IS_MAC:
                 voice = best_mac_voice()
-                self._process = subprocess.Popen(['say'] + (['-v', voice] if voice else []) + ['-r', '195', item[1]])
+                self._process = subprocess.Popen(say_command(voice, item[1]))
                 while self._process.poll() is None and not self.stopped.is_set():
                     time.sleep(0.03)
             else:
                 say_isolated({'source': 'system'} if not self.voice else self.voice, item[1])
+
+
+def say_command(voice, text: str) -> list:
+    """The Mac's say command for text. Text starting with "-" gets a space in front, so say
+    reads it aloud instead of taking it as an option (such as -o, which writes a file)."""
+    return ['say'] + (['-v', voice] if voice else []) + ['-r', '195', ' ' + text if text.startswith('-') else text]
 
 
 def speakable(text: str) -> str:
@@ -289,7 +314,7 @@ def best_mac_voice():
 
 def mac_say(text: str) -> None:
     voice = best_mac_voice()
-    subprocess.run(['say'] + (['-v', voice] if voice else []) + ['-r', '195', text])
+    subprocess.run(say_command(voice, text))
 
 
 # ---- listing -------------------------------------------------------------------------

@@ -20,17 +20,17 @@ JARVIS - voice assistant for your Mac
      - Or open Terminal, type   bash   and a space, drag the file into the window,
        and press Return.
 
-3. A setup window appears. Type your name, pick a name for your assistant, then let it
-   scan your face. That scan is the face lock: JARVIS starts only for you.
+3. A setup window appears. Type your name, pick a name for your assistant and choose its
+   voice. (A face lock, so JARVIS starts only for you, can be turned on later in the hub.)
 
-4. When macOS asks, allow Terminal to use the Camera and Microphone.
-   (Missed it? System Settings > Privacy & Security > Camera / Microphone.)
+4. When macOS asks, allow Terminal to use the Microphone.
+   (Missed it? System Settings > Privacy & Security > Microphone.)
 
 5. Optional: JARVIS answers with the free model on your Mac and hands the hardest requests
    to Claude Code. To let it, sign in to Claude Code once: open a new Terminal window, type
    claude   and press Return, and follow the steps. (Without it, JARVIS still works.)
 
-6. Face the camera. JARVIS greets you. Then just say "Hey" and its name (the one you picked,
+6. JARVIS greets you. Then just say "Hey" and its name (the one you picked,
    or "Jarvis") and what you want, in one breath: "Hey Jarvinky, what's the weather tomorrow?"
 
 Talking to JARVIS

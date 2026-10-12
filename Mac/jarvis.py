@@ -1,6 +1,6 @@
 """JARVIS: a voice assistant for your Mac or Windows PC.
 
-Start-up: first-run setup (once) -> face lock -> conversation.
+Start-up: first-run setup (once) -> face lock (only if turned on) -> conversation.
 The conversation: say "Hey Jarvis" (or press the hotkey, or click Talk in the menu bar),
 then talk back and forth; no wake word is needed until the conversation ends (10 quiet
 seconds, or you wrap up). Claude (brain.py) understands it and acts with JARVIS's tools, and
@@ -22,6 +22,7 @@ import threading
 import time
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jarvis.log')
+PREVIOUS_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jarvis.prev.log')
 
 
 class _Tee:
@@ -51,13 +52,21 @@ class _Tee:
         return getattr(self.stream, name)
 
 
+def _new_log():
+    try:  # keep the last run's log: it explains a crash or a sudden quit
+        os.replace(LOG_PATH, PREVIOUS_LOG_PATH)
+    except OSError:
+        pass
+    return open(LOG_PATH, 'w', encoding='utf-8', buffering=1)
+
+
 def _start_log():
     if sys.stdout is None:  # started without a console (Windows "Start when I sign in"): log only
-        log = open(LOG_PATH, 'w', encoding='utf-8', buffering=1)
+        log = _new_log()
         sys.stdout = sys.stderr = log
         faulthandler.enable(file=log, all_threads=True)
     elif sys.stdout.isatty():
-        log = open(LOG_PATH, 'w', encoding='utf-8', buffering=1)
+        log = _new_log()
         sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
         faulthandler.enable(file=log, all_threads=True)  # even a hard crash leaves a trace
     else:
@@ -76,6 +85,7 @@ import voices as voice_lib
 from brain import Sleep, cli_brain, make_brain
 from helpers import hud, speak
 from platform_utils import open_camera
+import user_settings
 from user_settings import load_settings
 
 
@@ -150,7 +160,34 @@ def respond(brain_, text, hear):
     return interrupted.is_set(), said, speech.spoke
 
 
+FAILURES_BEFORE_QUITTING = 5  # in a row, each within a minute of the last restart
+
+
 def converse(settings, brain_) -> None:
+    """Runs the conversation loop, and starts it again after an unexpected error (a microphone
+    glitch, a transcription failure), so one bad moment doesn't close JARVIS. An error that keeps
+    coming back is passed on, so JARVIS stops instead of failing over and over."""
+    failures = 0
+    while True:
+        started = time.monotonic()
+        try:
+            _converse(settings, brain_)
+            return
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            failures = 1 if time.monotonic() - started > 60 else failures + 1
+            if failures >= FAILURES_BEFORE_QUITTING:
+                raise
+            hud('hide')
+            try:
+                speak("Sorry, something went wrong. I'm still listening.")
+            except Exception:
+                traceback.print_exc()
+            time.sleep(failures)
+
+
+def _converse(settings, brain_) -> None:
     """Wait to be called ("Hey Jarvinky"), then talk back and forth without the wake word.
     The conversation ends after FOLLOW_UP_SECONDS of quiet, when JARVIS says goodbye (Claude's
     end marker) or on a stop word; then Claude forgets it."""
@@ -310,15 +347,16 @@ def wakeUpJARVIS(settings, brain_):
 # ---- face lock ----------------------------------------------------------------------------
 
 def face_check(settings) -> None:
-    """Returns once the enrolled face has been recognised in 3 frames in a row.
+    """Returns once the enrolled face has been recognised in 3 frames in a row, or at once when
+    the face lock is off (it is unless turned on in the hub, or "face_lock": true).
 
     The model scores each face by distance (0 is a perfect match). The old check accepted
     anything under 100, which let other people in; 80 is stricter. If it keeps refusing you,
     lower lighting differences or set "face_lock_threshold" (e.g. 90) in user_settings.json,
-    or "face_lock": false to turn it off.
+    or turn the face lock off in the hub.
     """
     import cv2
-    if settings.get('face_lock') is False:
+    if not user_settings.face_lock_on(settings):
         return
     threshold = float(settings.get('face_lock_threshold', 80))
     recognizer = cv2.face.LBPHFaceRecognizer_create()  # Local Binary Patterns Histograms
@@ -381,9 +419,10 @@ def face_check(settings) -> None:
 
 
 if __name__ == '__main__':
-    # First run on this computer (no user yet, or no face model): show the setup window.
+    # First run on this computer (no user yet, or the face lock is on but no face is scanned yet).
     settings = load_settings()
-    if settings is None or not os.path.exists(face_enroll.model_path()):
+    if settings is None or (user_settings.face_lock_on(settings)
+                            and not os.path.exists(face_enroll.model_path())):
         from first_run import run_setup
         settings = run_setup()
         if settings is None:

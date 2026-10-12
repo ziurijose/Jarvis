@@ -29,9 +29,11 @@ USE_AFPLAY = sys.platform == 'darwin' and os.path.exists(AFPLAY)
 
 _lock = threading.Lock()
 _players = set()        # afplay processes playing now, so stop() can end them
-_used_sounddevice = False
+_turn = threading.Lock()  # sounddevice sounds play one at a time; the next waits its turn
+_stops = 0              # how many times stop() has run; a sound playing when it changes ends
 _sounding = []          # sounds playing (or just played), for output_level()
 HOP = 0.02              # output_level() resolution, in seconds
+STALL_SECONDS = 5       # how long past its length a sound may take before the device counts as stuck
 
 
 def _pcm16(samples):
@@ -144,23 +146,53 @@ def _afplay(samples, rate, stopped) -> None:
         _remove(path)
 
 
+def _for_stream(samples):
+    """samples as a two-dimensional array in a format PortAudio plays (float32 or int16)."""
+    import numpy as np
+    audio = np.asarray(samples)
+    if audio.dtype.kind == 'f':
+        audio = np.clip(audio, -1.0, 1.0).astype(np.float32)
+        return audio.reshape(-1, 1) if audio.ndim == 1 else audio
+    frames, channels = _pcm16(audio)
+    return np.frombuffer(frames, '<i2').reshape(-1, channels)
+
+
 def _sounddevice(samples, rate, stopped) -> None:
-    global _used_sounddevice
     import sounddevice as sd
-    _used_sounddevice = True
-    sd.play(samples, rate)
-    sound = _track(samples, rate)
-    try:
-        if stopped is None:
-            sd.wait()
-            return
-        end = time.monotonic() + len(samples) / rate + 0.1
-        while time.monotonic() < end and not stopped.is_set():
-            time.sleep(0.03)
-        if stopped.is_set():
-            sd.stop()
-    finally:
-        _untrack(sound)
+    audio = _for_stream(samples)
+    position = 0
+    finished = threading.Event()
+
+    def fill(outdata, frames, _time, _status):
+        nonlocal position
+        chunk = audio[position:position + frames]
+        outdata[:len(chunk)] = chunk
+        outdata[len(chunk):] = 0
+        position += len(chunk)
+        if not len(chunk):
+            raise sd.CallbackAbort  # as sounddevice's play() ends; CallbackStop adds ~0.2 s per sound
+
+    # Each sound has its own stream, opened and closed by this thread only. sounddevice's
+    # play()/wait()/stop() share one stream between all threads, and two threads stopping and
+    # closing it at once crash PortAudio (an access violation that ends the whole program).
+    with _turn:
+        with _lock:
+            stops = _stops
+        sound = _track(samples, rate)
+        try:
+            with sd.OutputStream(samplerate=rate, channels=audio.shape[1], dtype=audio.dtype,
+                                 callback=fill, finished_callback=finished.set) as stream:
+                limit = time.monotonic() + len(audio) / rate + STALL_SECONDS
+                while not finished.wait(0.03):
+                    if time.monotonic() > limit:
+                        print('The speaker stopped responding; skipping the rest of this sound.')
+                        stream.abort()
+                        return
+                    if (stopped is not None and stopped.is_set()) or _stops != stops:
+                        stream.abort()
+                        return
+        finally:
+            _untrack(sound)
 
 
 def play(samples, rate, stopped=None) -> None:
@@ -185,7 +217,9 @@ def start(samples, rate) -> None:
 
 def stop() -> None:
     """Silences whatever is playing."""
+    global _stops
     with _lock:
+        _stops += 1
         playing = list(_players)
         for sound in _sounding:
             _untrack(sound)
@@ -193,10 +227,4 @@ def stop() -> None:
         try:
             process.terminate()
         except OSError:
-            pass
-    if _used_sounddevice:
-        try:
-            import sounddevice as sd
-            sd.stop()
-        except Exception:
             pass

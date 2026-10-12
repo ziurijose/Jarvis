@@ -16,11 +16,11 @@ copy the change to the other folder; CI checks that they match.
 ## Start
 
 In the **Mac** folder, double-click **Start JARVIS.command**. The first time, it installs what it needs into this folder
-(a few minutes; no admin password or Homebrew). Then a setup window asks for your name and a name
-for the assistant, and scans your face for the face lock. Allow **camera** and **microphone**
-access for Terminal when macOS asks. "START HERE (Mac).txt" has the step-by-step version.
+(a few minutes; no admin password or Homebrew). Then a setup window asks for your name, a name
+for the assistant and its voice. Allow **microphone** access for Terminal when macOS asks.
+"START HERE (Mac).txt" has the step-by-step version.
 
-To run setup again (new user or new face), delete `user_settings.json` and start JARVIS.
+To run setup again (a new user), delete `user_settings.json` and start JARVIS.
 
 ## The hub
 
@@ -118,11 +118,17 @@ way (no admin password), and works the same, with these differences:
     matches keywords.
   - "Forget that..." also removes it from past conversations. To clear all history, delete
     `conversations.jsonl` and `recall_index.npy` while JARVIS is closed.
-  - Anyone who calls JARVIS can ask about past conversations (the face lock only runs at start-up).
+  - Anyone who calls JARVIS can ask about past conversations (the face lock, when it is on, only
+    runs at start-up).
+- **Calling it:** start or end the sentence with its name ("Hey Jarvis, ...", "OK Jarvis ...",
+  "..., Jarvis?"). Its name in the middle of a sentence (on TV, in a song) is a mention, not a call.
+- **Web pages:** before Claude opens a page, JARVIS checks it against the abuse.ch and OpenPhish
+  lists of malware and phishing pages (`fetch_guard.py`) and blocks those, as well as addresses on
+  this computer or the home network. Everything else stays open.
 - **Interrupt it:** talk over it. It stops straight away, drops what it was doing, and listens to
   you instead. With headphones a word or two is enough; on the Mac's speakers, speak up (it has to
-  tell your voice from its own), or say "Hey Jarvis", which always works. If you pause and carry on
-  while it is still thinking, it puts both parts together.
+  tell your voice from its own), or say "Hey Jarvis" clearly, louder than its voice. If you pause
+  and carry on while it is still thinking, it puts both parts together.
 - **What it can do:** open and quit apps, control music and volume, look at your screen, take
   screenshots, check CPU and battery, run your Apple Shortcuts, read and add calendar events,
   reminders and notes, send iMessages and emails (it reads them back and only sends after you say
@@ -166,7 +172,7 @@ signed in with your Claude account. No API key is needed, and JARVIS never asks 
 | `"microphone"` | Part of a microphone's name, to use one other than the system default |
 | `"language"` | e.g. `"es-ES"`, for speech in another language |
 | `"hotkey"` | e.g. `"<cmd>+<shift>+j"` instead of Option+Space |
-| `"face_lock": false` | Turn the face lock off (or set `"face_lock_threshold"`, default 80) |
+| `"face_lock": true` | Turn the face lock on (also in the hub): JARVIS scans your face at the next start and then starts only for you. `"face_lock_threshold"` (default 80) sets how strict |
 
 `JARVIS_WHISPER_MODEL` (environment) picks the speech model: `small.en` on Apple silicon by
 default, `tiny.en` or `base.en` for more speed, `medium.en` for more accuracy.

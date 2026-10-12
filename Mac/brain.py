@@ -26,8 +26,10 @@ import threading
 import time
 import webbrowser
 import control
+import fetch_guard
 import quick
 import recall
+import user_settings
 
 IS_MAC = sys.platform == 'darwin'
 IS_WINDOWS = sys.platform == 'win32'
@@ -46,6 +48,11 @@ END = '<end/>'          # Claude ends a reply with this when the user is wrappin
 
 class Sleep(Exception):
     """Raised by the go_to_sleep tool once the goodbye has been said."""
+
+
+def _applescript_text(text) -> str:
+    """text as an AppleScript string literal, so quotes in it can't end the string early."""
+    return '"' + str(text).replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
 def _osascript(script):
@@ -72,7 +79,7 @@ def quit_app(name):
         return windows.quit_app(name)
     if not IS_MAC:
         return 'Quitting apps is not supported on this computer.'
-    _osascript(f'tell application "{name}" to quit')
+    _osascript(f'tell application {_applescript_text(name)} to quit')
     return f'Quit {name}.'
 
 
@@ -188,16 +195,16 @@ def load_memory():
 def remember(fact):
     facts = load_memory()
     facts.append(fact.strip())
-    with open(MEMORY_PATH, 'w', encoding='utf-8') as f:
-        json.dump(facts[-200:], f, indent=1)
+    user_settings.save_json(MEMORY_PATH, facts[-200:], indent=1)
     return 'Remembered.'
 
 
 def forget(about):
+    if not about.strip():  # an empty search matches every fact
+        return 'Forget what? Nothing was forgotten.'
     facts = load_memory()
     kept = [f for f in facts if about.lower() not in f.lower()]
-    with open(MEMORY_PATH, 'w', encoding='utf-8') as f:
-        json.dump(kept, f, indent=1)
+    user_settings.save_json(MEMORY_PATH, kept, indent=1)
     return f'Forgot {len(facts) - len(kept)} fact(s) and {recall.forget(about)} past exchange(s).'
 
 
@@ -532,6 +539,14 @@ def parse_actions(text):
     return actions
 
 
+def fetch_guard_settings() -> dict:
+    """Claude Code settings that run fetch_guard.py before every web page Claude opens."""
+    python = sys.executable.replace(os.sep, '/')  # quoted forward-slash paths work in any shell
+    guard = os.path.join(HERE, 'fetch_guard.py').replace(os.sep, '/')
+    return {'hooks': {'PreToolUse': [{'matcher': 'WebFetch', 'hooks': [
+        {'type': 'command', 'command': f'"{python}" "{guard}"', 'timeout': 30}]}]}}
+
+
 class CliBrain(Brain):
     """Claude Code, started once and kept running in streaming mode. The old way started a
     new Claude Code for every request and waited for its whole answer (about 6 seconds
@@ -572,7 +587,7 @@ class CliBrain(Brain):
                 text = ''
             self.flags = {f for f in ('--include-partial-messages', '--tools', '--strict-mcp-config',
                                       '--disable-slash-commands', '--effort', '--no-session-persistence',
-                                      '--permission-prompts')
+                                      '--permission-prompts', '--settings')
                           if f in text}
             try:
                 version = subprocess.run([self.claude, '--version'], capture_output=True, text=True,
@@ -597,6 +612,11 @@ class CliBrain(Brain):
                     cmd.append(flag)
             if '--permission-prompts' in has:
                 cmd += ['--permission-prompts', 'none']  # anything else it wants is refused, not asked
+            if '--settings' in has:
+                cmd += ['--settings', json.dumps(fetch_guard_settings())]
+                fetch_guard.refresh_in_background()
+            else:
+                print('This Claude Code is too old to check web pages before opening them; update it.')
             if '--effort' in has:
                 cmd += ['--effort', self.settings.get('claude_effort') or EFFORT]
             if self.settings.get('claude_model'):
@@ -1224,6 +1244,7 @@ class LocalBrain(Brain):
                            timeout=(5, 300)) as response:
             if response.status_code >= 400:
                 raise LocalProblem(self._http_problem(response))
+            response.encoding = 'utf-8'  # servers omit the charset, and requests would guess Latin-1
             for line in response.iter_lines(decode_unicode=True):
                 if interrupted.is_set():
                     return None, None

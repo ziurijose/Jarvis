@@ -48,11 +48,15 @@ def as_date(name: str, when: datetime.datetime) -> str:
 
 
 def parse_when(text: str) -> datetime.datetime:
-    """ISO 8601 local time from the model, e.g. 2026-10-09T15:00."""
+    """ISO 8601 time from the model, e.g. 2026-10-09T15:00, as this Mac's local time without a
+    timezone (a time with an offset or a Z is converted; AppleScript dates have no timezone)."""
     try:
-        return datetime.datetime.fromisoformat(text.strip().replace('Z', ''))
+        when = datetime.datetime.fromisoformat(text.strip())
     except ValueError:
         raise ValueError(f'Give the time as ISO 8601, e.g. 2026-10-09T15:00 (got "{text}").')
+    if when.tzinfo is not None:
+        when = when.astimezone().replace(tzinfo=None)
+    return when
 
 
 def day_range(day: str, days: int):

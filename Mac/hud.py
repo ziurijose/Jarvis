@@ -56,6 +56,7 @@ class Hud:
         self.root.after(FRAME_MS, self._frame)
 
     def _read_stdin(self) -> None:
+        sys.stdin.reconfigure(encoding='utf-8', errors='replace')  # helpers.hud() sends UTF-8
         for line in sys.stdin:
             self.commands.put(line.strip())
         self.commands.put('quit')
@@ -94,6 +95,12 @@ class Hud:
                 if self.renderer.fully_hidden:
                     self.root.withdraw()
                     self.mapped = False
+        except tk.TclError:
+            return  # window was destroyed by "quit"
+        except Exception:
+            import traceback
+            traceback.print_exc()  # one bad frame shouldn't freeze the orb on screen for good
+        try:
             self.root.after(FRAME_MS, self._frame)
         except tk.TclError:
             pass  # window was destroyed by "quit"

@@ -38,8 +38,9 @@ class FakeServer:
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/event-stream')
                 self.end_headers()
-                for delta in chunks:
-                    self.wfile.write(b'data: ' + json.dumps({'choices': [{'index': 0, 'delta': delta}]}).encode() + b'\n\n')
+                for delta in chunks:  # raw UTF-8 and no charset in the header, like Ollama
+                    chunk = json.dumps({'choices': [{'index': 0, 'delta': delta}]}, ensure_ascii=False)
+                    self.wfile.write(b'data: ' + chunk.encode('utf-8') + b'\n\n')
                 self.wfile.write(b'data: [DONE]\n\n')
 
             def _json(self, data):
@@ -73,6 +74,15 @@ def local_brain(url, **settings):
 
 
 class LocalBrainTests(unittest.TestCase):
+    def test_accents_and_curly_quotes_arrive_intact(self):
+        server = FakeServer([[{'role': 'assistant', 'content': 'It’s the café — '}, {'content': 'naïve, 20 °C.'}]])
+        try:
+            speech = Speech()
+            said = local_brain(server.url).handle('Where?', speech, threading.Event())
+        finally:
+            server.close()
+        self.assertEqual(said.strip(), 'It’s the café — naïve, 20 °C.')
+
     def test_streams_an_answer_without_its_thinking(self):
         server = FakeServer([[{'role': 'assistant', 'content': '<think>They want a joke.'},
                               {'content': '</think>\n\nWhy did the'}, {'content': ' chicken cross the road? '},
