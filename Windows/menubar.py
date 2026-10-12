@@ -154,14 +154,16 @@ def run(main, settings) -> None:
     """Runs main (the conversation) with a menu bar icon and the hotkey. Without the menu
     bar (not a Mac, rumps missing, or "menu_bar": false) main simply runs here."""
     def body():
+        code = 0
         try:
             main()
-        except SystemExit:
-            pass
+        except SystemExit as error:
+            code = error.code if isinstance(error.code, int) else 0
         except Exception:
             traceback.print_exc()
+            code = 1  # so Start JARVIS.bat pauses and the error stays on screen
         finally:
-            os._exit(0)  # JARVIS said goodbye (or failed): close everything, the menu bar too
+            os._exit(code)  # JARVIS said goodbye (or failed): close everything, the menu bar too
 
     hotkey = settings.get('hotkey') or DEFAULT_HOTKEY
     start_hotkey(hotkey, lambda: helpers.hearing().trigger())
