@@ -176,9 +176,11 @@ class Speech:
         while True:
             # The first piece may end at a comma, so the voice starts sooner.
             ends = r'[.!?;:,](?=\s)|\n' if not self.queued else r'[.!?;:](?=\s)|\n'
-            match = re.search(ends, self.pending)
-            if not match or (match.end() < 25 and '\n' not in self.pending[:match.end()]):
-                break  # keep tiny pieces ("Sure.") together with what follows
+            # Tiny pieces ("Sure.") stay with what follows: cut at the first end past them.
+            match = next((m for m in re.finditer(ends, self.pending)
+                          if m.end() >= 25 or '\n' in self.pending[:m.end()]), None)
+            if not match:
+                break
             self._queue(self.pending[:match.end()])
             self.pending = self.pending[match.end():]
 
