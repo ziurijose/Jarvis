@@ -262,10 +262,23 @@ def _save_reminders(items: list) -> None:
 
 
 def _parse_when(text: str) -> datetime.datetime:
+    """An ISO 8601 time as this computer's local time, without a timezone (a time with an
+    offset or a Z is converted), so it compares with datetime.now()."""
     try:
-        return datetime.datetime.fromisoformat(text.strip().replace('Z', ''))
+        when = datetime.datetime.fromisoformat(text.strip())
     except ValueError:
         raise ValueError(f'Give the time as ISO 8601, e.g. 2026-10-09T15:00 (got "{text}").')
+    if when.tzinfo is not None:
+        when = when.astimezone().replace(tzinfo=None)
+    return when
+
+
+def _due_time(reminder):
+    """When reminder is due, or None if it has no time or one that can't be read."""
+    try:
+        return _parse_when(reminder['due']) if reminder.get('due') else None
+    except (ValueError, TypeError):
+        return None
 
 
 def add_reminder(text: str, due: str = '', list_name: str = '') -> str:
@@ -287,7 +300,8 @@ def list_reminders(list_name: str = '') -> str:
         return 'No open reminders.'
     lines = []
     for r in items:
-        due = f" (due {_parse_when(r['due']):%a %d %b %H:%M})" if r.get('due') else ''
+        when = _due_time(r)
+        due = f" (due {when:%a %d %b %H:%M})" if when else ''
         lines.append(r['text'] + due)
     return '\n'.join(lines)
 
@@ -307,8 +321,8 @@ def due_reminders() -> list:
     now = datetime.datetime.now()
     with _reminders_lock:
         items = _load_reminders()
-        due = [r for r in items if r.get('due') and not r.get('done') and not r.get('alerted')
-               and _parse_when(r['due']) <= now]
+        due = [r for r in items if not r.get('done') and not r.get('alerted')
+               and (when := _due_time(r)) is not None and when <= now]
         for r in due:
             r['alerted'] = True
         if due:
