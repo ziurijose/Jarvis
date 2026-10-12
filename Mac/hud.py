@@ -56,6 +56,7 @@ class Hud:
         self.root.after(FRAME_MS, self._frame)
 
     def _read_stdin(self) -> None:
+        sys.stdin.reconfigure(encoding='utf-8', errors='replace')  # helpers.hud() sends UTF-8
         for line in sys.stdin:
             self.commands.put(line.strip())
         self.commands.put('quit')
