@@ -30,13 +30,23 @@ def load_settings(path: str = SETTINGS_PATH):
     return settings
 
 
-def update_settings(changes: dict, path: str = SETTINGS_PATH) -> dict:
-    """Add or change settings, keeping everything else in the file."""
+def read_settings(path: str = SETTINGS_PATH) -> dict:
+    """Everything in the settings file, even before setup is finished ({} if there is none)."""
     try:
         with open(path, encoding='utf-8') as f:
-            settings = json.load(f)
+            return json.load(f)
     except (OSError, ValueError):
-        settings = {}
+        return {}
+
+
+def face_lock_on(settings) -> bool:
+    """The face lock is off unless it was turned on (in the hub, or "face_lock": true)."""
+    return bool(settings) and settings.get('face_lock') is True
+
+
+def update_settings(changes: dict, path: str = SETTINGS_PATH) -> dict:
+    """Add or change settings, keeping everything else in the file."""
+    settings = read_settings(path)
     settings.update(changes)
     save_json(path, settings, indent=2)
     return settings

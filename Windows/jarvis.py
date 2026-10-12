@@ -1,6 +1,6 @@
 """JARVIS: a voice assistant for your Mac or Windows PC.
 
-Start-up: first-run setup (once) -> face lock -> conversation.
+Start-up: first-run setup (once) -> face lock (only if turned on) -> conversation.
 The conversation: say "Hey Jarvis" (or press the hotkey, or click Talk in the menu bar),
 then talk back and forth; no wake word is needed until the conversation ends (10 quiet
 seconds, or you wrap up). Claude (brain.py) understands it and acts with JARVIS's tools, and
@@ -85,6 +85,7 @@ import voices as voice_lib
 from brain import Sleep, cli_brain, make_brain
 from helpers import hud, speak
 from platform_utils import open_camera
+import user_settings
 from user_settings import load_settings
 
 
@@ -346,15 +347,16 @@ def wakeUpJARVIS(settings, brain_):
 # ---- face lock ----------------------------------------------------------------------------
 
 def face_check(settings) -> None:
-    """Returns once the enrolled face has been recognised in 3 frames in a row.
+    """Returns once the enrolled face has been recognised in 3 frames in a row, or at once when
+    the face lock is off (it is unless turned on in the hub, or "face_lock": true).
 
     The model scores each face by distance (0 is a perfect match). The old check accepted
     anything under 100, which let other people in; 80 is stricter. If it keeps refusing you,
     lower lighting differences or set "face_lock_threshold" (e.g. 90) in user_settings.json,
-    or "face_lock": false to turn it off.
+    or turn the face lock off in the hub.
     """
     import cv2
-    if settings.get('face_lock') is False:
+    if not user_settings.face_lock_on(settings):
         return
     threshold = float(settings.get('face_lock_threshold', 80))
     recognizer = cv2.face.LBPHFaceRecognizer_create()  # Local Binary Patterns Histograms
@@ -417,9 +419,10 @@ def face_check(settings) -> None:
 
 
 if __name__ == '__main__':
-    # First run on this computer (no user yet, or no face model): show the setup window.
+    # First run on this computer (no user yet, or the face lock is on but no face is scanned yet).
     settings = load_settings()
-    if settings is None or not os.path.exists(face_enroll.model_path()):
+    if settings is None or (user_settings.face_lock_on(settings)
+                            and not os.path.exists(face_enroll.model_path())):
         from first_run import run_setup
         settings = run_setup()
         if settings is None:

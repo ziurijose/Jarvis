@@ -66,7 +66,8 @@ class SetupApi:
     # ---- names and voice ---------------------------------------------------------------
 
     def defaults(self):
-        return {'assistant': user_settings.DEFAULT_ASSISTANT_NAME}
+        face_lock = user_settings.face_lock_on(user_settings.read_settings(self._settings_path))
+        return {'assistant': user_settings.DEFAULT_ASSISTANT_NAME, 'face_lock': face_lock}
 
     def list_voices(self):
         self._voices = voices.all_voices()
@@ -82,6 +83,12 @@ class SetupApi:
         self._user = user.strip()
         self._assistant = assistant.strip() or user_settings.DEFAULT_ASSISTANT_NAME
         self._voice = self._voices[index] if self._voices else None
+        return True
+
+    def save_choices(self):
+        """Saves the names and voice. Setup ends here when the face lock is off (no face scan)."""
+        self.result = user_settings.save_settings(self._user, self._assistant, self._settings_path,
+                                                  voice=self._voice)
         return True
 
     # ---- face scan ---------------------------------------------------------------------

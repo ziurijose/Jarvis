@@ -113,7 +113,7 @@ class HubApi:
             'barge_in': s.get('barge_in', True) is not False,
             'microphone': s.get('microphone', ''),
             'hotkey': s.get('hotkey', ''),
-            'face_lock': s.get('face_lock', True) is not False,
+            'face_lock': user_settings.face_lock_on(s),
             'face_strictness': int(s.get('face_lock_threshold', 80)),
             'city': s.get('city', ''),
             'menu_bar': s.get('menu_bar', True) is not False,

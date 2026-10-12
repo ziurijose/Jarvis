@@ -180,7 +180,7 @@
 
   <section class="side">
     <div class="progress" aria-hidden="true"><span></span><span></span><span></span></div>
-    <div class="progress-caption" id="progress-caption">Step 1 of 3</div>
+    <div class="progress-caption" id="progress-caption"></div>
 
     <div class="screens">
       <!-- names -->
@@ -314,7 +314,7 @@ function setHeadline(el, html) { el.innerHTML = html; split(el); }
 function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
 /* ---- screens + progress ---------------------------------------------------------------- */
-const STEPS = ['s-names', 's-voice', 's-face', 's-hello'];
+let STEPS = ['s-names', 's-voice', 's-face', 's-hello'];  // without s-face when the face lock is off
 const ORB_STATE = {
   's-names': { energy: 0.25, spread: 0, scale: 1, shift: 0 },
   's-voice': { energy: 0.45, spread: 0, scale: 1.05, shift: 0 },
@@ -332,7 +332,8 @@ function show(id) {
   current = next;
   const step = STEPS.indexOf(id);
   document.querySelectorAll('.progress span').forEach((s, i) => s.classList.toggle('done', i < step || id === 's-hello'));
-  document.getElementById('progress-caption').textContent = step < 3 ? `Step ${step + 1} of 3` : 'All set';
+  const total = STEPS.length - 1;
+  document.getElementById('progress-caption').textContent = step < total ? `Step ${step + 1} of ${total}` : 'All set';
   Orb.set(ORB_STATE[id]);
 }
 const api = () => window.pywebview.api;
@@ -421,8 +422,9 @@ window.onPreviewDone = (error) => {               // called from Python when spe
 };
 async function chooseVoice() {
   await api().set_choices(state.user, state.assistant, state.selected);
-  show('s-face');
-  startCamera();
+  if (STEPS.includes('s-face')) { show('s-face'); startCamera(); return; }
+  await api().save_choices();
+  sayHello();
 }
 document.getElementById('voice-continue').addEventListener('click', chooseVoice);
 document.getElementById('voice-refresh').addEventListener('click', loadVoices);
@@ -477,11 +479,14 @@ window.onCameraError = (message) => {
 window.onScanDone = (ok, message) => {
   scanning = false; camera.classList.remove('scanning');
   if (!ok) { faceNote.textContent = message; faceNote.className = 'note error'; scanBtn.disabled = false; scanBtn.textContent = 'Start scan'; return; }
+  sayHello();
+};
+function sayHello() {
   setHeadline(document.getElementById('hello-title'), `Hello,<br>${escapeHtml(state.user)}`);
   document.getElementById('hello-sub').textContent = `${state.assistant} is ready.`;
   show('s-hello');
   setTimeout(() => api().say_hello(), 450);
-};
+}
 scanBtn.addEventListener('click', () => {
   if (scanBtn.textContent === 'Retry') { startCamera(); return; }
   scanning = true; scanBtn.disabled = true; camera.classList.add('scanning');
@@ -497,6 +502,10 @@ document.addEventListener('keydown', e => {
 /* ---- start ------------------------------------------------------------------------------ */
 window.addEventListener('pywebviewready', async () => {
   const d = await api().defaults();
+  if (!d.face_lock) {
+    STEPS = STEPS.filter(id => id !== 's-face');
+    document.querySelector('.progress span:last-child').remove();
+  }
   assistantInput.value = d.assistant;
   document.getElementById('brand-name').textContent = d.assistant;
   show('s-names');
