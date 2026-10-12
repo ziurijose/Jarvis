@@ -203,6 +203,11 @@ class Speech:
 
     def stop(self) -> None:
         self.stopped.set()
+        self.sentences.put(None)  # wakes the generator if it is waiting for text
+        try:
+            self.ready.put_nowait(None)  # wakes the player if it is waiting for a sentence
+        except queue.Full:
+            pass  # it has sentences waiting, so it isn't blocked, and sees stopped next
         playback.stop()
         if self._process and self._process.poll() is None:
             self._process.terminate()
@@ -217,7 +222,7 @@ class Speech:
         while True:
             text = self.sentences.get()
             if text is None or self.stopped.is_set():
-                self.ready.put(None)
+                self._hand_over(None)
                 return
             item = ('text', text)
             if engine is not None:
@@ -225,7 +230,19 @@ class Speech:
                     item = ('pcm',) + tuple(_synthesize(engine, voice, text)) + (text,)
                 except Exception as error:
                     print(f'The natural voice failed ({error}).')
-            self.ready.put(item)
+            if not self._hand_over(item):
+                return
+
+    def _hand_over(self, item) -> bool:
+        """Passes item to the player; False if speech was stopped first (the player has quit,
+        so nothing would ever take it)."""
+        while not self.stopped.is_set():
+            try:
+                self.ready.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                pass
+        return False
 
     def _play(self):
         import time
