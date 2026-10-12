@@ -76,13 +76,46 @@ def quiet_needed(spoken_frames):
     return SHORT_QUIET if spoken_frames * FRAME / SAMPLE_RATE < 1.0 else END_QUIET
 
 
-def split_at_name(text, names):
-    """If text calls the assistant by one of names ("Hey Jarvinky, what's the time?"),
-    returns the request in it ('' if there is none); otherwise None. Whisper may spell the
-    name a little differently ("Jarvinki", "Jar Vinky"), so close matches count."""
-    tokens = text.split()
-    keys = [re.sub(r"[^\w]", '', t.lower()) for t in tokens]
+# Words that may come before the name when calling the assistant ("Hey Jarvis", "OK Jarvis").
+CALLING_WORDS = {'hey', 'hi', 'hello', 'ok', 'okay', 'yo', 'oi', 'please', 'so', 'um', 'uh', 'well',
+                 'alright', 'right', 'excuse'}
 
+
+def _words(text):
+    """text's words, and each one lower-cased without punctuation (words that are only
+    punctuation are left out)."""
+    pairs = [(t, re.sub(r"[^\w]", '', t.lower())) for t in text.split()]
+    pairs = [(t, k) for t, k in pairs if k]
+    return [t for t, _ in pairs], [k for _, k in pairs]
+
+
+def mentions_name(text, names):
+    """Whether text has one of names in it anywhere (or something close to it)."""
+    return _find_name(_words(text)[1], names) is not None
+
+
+def split_at_name(text, names):
+    """If text calls the assistant by one of names ("Hey Jarvinky, what's the time?",
+    "What's the time, Jarvinky?"), returns the request in it ('' if there is none); otherwise
+    None. The name must start or end the sentence: said in the middle ("and then Jarvis said
+    ..."), on TV or in a song, it's a mention, not a call. Whisper may spell the name a little
+    differently ("Jarvinki", "Jar Vinky"), so close matches count."""
+    tokens, keys = _words(text)
+    found = _find_name(keys, names)
+    if found is None:
+        return None
+    i, size = found
+    if i == 0 or (i == 1 and keys[0] in CALLING_WORDS):
+        rest = tokens[i + size:]
+    elif i + size == len(keys):
+        rest = tokens[:i]
+    else:
+        return None
+    return ' '.join(rest).strip(' ,.!?;:-')
+
+
+def _find_name(keys, names):
+    """Where the name is among keys, as (index, how many words it takes), or None."""
     def is_name(word, among, close):
         if len(word) < 4:  # a short name ("Max") only counts heard exactly: short words are easily misheard
             return word in among
@@ -99,8 +132,7 @@ def split_at_name(text, names):
         ratio = lambda word: max(difflib.SequenceMatcher(None, word, n).ratio() for n in long_names)  # noqa: E731
         if ratio(keys[i] + keys[i + 1]) > ratio(keys[i]):
             size = 2
-    rest = tokens[i + size:] if i <= 3 else tokens[:i] + tokens[i + size:]
-    return ' '.join(rest).strip(' ,.!?;:-')
+    return i, size
 
 
 def clean(text):
@@ -171,7 +203,7 @@ def level(frame: bytes) -> float:
 class WakeWord:
     """Spots "Hey Jarvis" (or just "Jarvis") in the audio, on this computer."""
     THRESHOLD = 0.5
-    WHILE_SPEAKING = 0.5  # while JARVIS talks (it never says "Jarvis", so its voice cannot trigger it)
+    WHILE_SPEAKING = 0.5  # while JARVIS talks (a hit must also be louder than JARVIS's own voice)
 
     def __init__(self):
         from openwakeword.model import Model
@@ -209,8 +241,8 @@ class EchoGate:
         self.seen = collections.deque(maxlen=self.KEEP)
         self.loudest = 0.0
 
-    def is_user(self, mic: float, output: float, floor: float) -> bool:
-        if output >= self.QUIET:
+    def is_user(self, mic: float, output: float, floor: float, learn=True) -> bool:
+        if learn and output >= self.QUIET:
             self.loudest = max(output, self.loudest * 0.999)
             if output > self.loudest * 0.3:  # learn from JARVIS's clearly audible moments
                 self.seen.append(mic / output)
@@ -390,6 +422,7 @@ class Hearing:
         self._start()
         self.engine  # waits until the wake word detector has loaded
         run = 0
+        recent = collections.deque(maxlen=12)  # loudness of the last second, for the wake word
         while not stop.is_set():
             if self.pressed.is_set():
                 self.pressed.clear()
@@ -397,19 +430,27 @@ class Hearing:
             frame = self.hub.read(timeout=0.1)
             if frame is None:
                 continue
+            loud = level(frame)
+            recent.append(loud)
+            talking = playback.output_level(behind=1.5) >= EchoGate.QUIET
+            # Learns how loud JARVIS's voice comes back, whether or not talking over it is on.
+            user = talking and self.echo.is_user(loud, playback.output_level(), self.threshold)
             if self.wake is not None and self.wake.heard(frame, WakeWord.WHILE_SPEAKING):
-                self.hub.unread(5)
-                return True
+                # Over JARVIS's voice, only a call louder than its echo counts: JARVIS saying
+                # its own name ("I'm Jarvis") must not wake it.
+                if not talking or self.echo.is_user(max(recent), playback.output_level(behind=1.0),
+                                                    self.threshold, learn=False):
+                    self.hub.unread(5)
+                    return True
             if not self.barge_in:
                 continue
-            if playback.output_level(behind=1.5) >= EchoGate.QUIET:
+            if talking:
                 # JARVIS is talking: the user must be heard over its voice.
-                user = self.echo.is_user(level(frame), playback.output_level(), self.threshold)
                 run = run + 1 if user else 0
                 needed = BARGE_IN_FRAMES
             else:
                 # JARVIS is thinking: the user is still talking, or changed their mind.
-                run = run + 1 if level(frame) > self.threshold else 0
+                run = run + 1 if loud > self.threshold else 0
                 needed = THINKING_FRAMES
             if run >= needed:
                 self.hub.unread(8)  # the start of what they said
@@ -458,7 +499,8 @@ class Hearing:
                 continue  # a click or a bump
             text = self.transcribe(sr.AudioData(b''.join(audio), SAMPLE_RATE, 2)) or ''
             request = split_at_name(text, self.names)
-            if request is None and woke:  # the detector heard it, though Whisper misspelled it
+            if request is None and woke and not mentions_name(text, self.names):
+                # the detector heard it, though Whisper misspelled it
                 words = text.split()
                 request = ' '.join(words[2:]) if len(words) >= 4 else ''
             woke = False
