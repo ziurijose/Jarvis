@@ -6,6 +6,9 @@ then talk back and forth; no wake word is needed until the conversation ends (10
 seconds, or you wrap up). Claude (brain.py) understands it and acts with JARVIS's tools, and
 forgets each conversation when it ends (recall.py can look it up). While JARVIS answers, talk
 over it (or say "Hey Jarvis") to stop it and say something new.
+
+Or type instead of talking, in a terminal:  python jarvis.py --text  (add --speak to also hear
+the answers). Same brain, tools and memory.
 """
 import datetime
 import faulthandler
@@ -203,6 +206,95 @@ def converse(settings, brain_) -> None:
             talking = False
 
 
+# ---- typing instead of talking ------------------------------------------------------------
+
+class _Printed:
+    """Where an answer goes in text mode: printed as it is written, and spoken too with --speak."""
+
+    def __init__(self, name, aloud):
+        self.name, self.started = name, False
+        self.voice = voice_lib.Speech(helpers.VOICE) if aloud else None
+
+    def feed(self, text):
+        if not self.started:
+            self.started = True
+            print(f'{self.name}: ', end='')
+        print(text, end='', flush=True)
+        if self.voice:
+            self.voice.feed(text)
+
+    def stop(self):
+        if self.voice:
+            self.voice.stop()
+
+    def finish(self):
+        if self.started:
+            print()
+        if self.voice:
+            self.voice.finish()
+            self.voice.wait()
+
+
+def type_to_jarvis(settings, brain_, aloud=False) -> None:
+    """Text mode: type a request, read the answer as it is written. Ctrl+C stops an answer;
+    "exit", Ctrl+C at the prompt, or Ctrl+D (Ctrl+Z then Enter on Windows) quits."""
+    name = (settings.get('assistant_name') or 'Jarvis').capitalize()
+    print(f'\n{name} is ready. Type a request and press Enter ("exit" to quit; Ctrl+C stops an answer).\n')
+    conv = recall.start_conversation()
+    while True:
+        try:
+            text = input('You: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if not text:
+            continue
+        if text.lower() in ('exit', 'quit'):
+            return
+        out, interrupted, result = _Printed(name, aloud), threading.Event(), {}
+
+        def answer():
+            try:
+                result['said'] = brain_.handle(text, out, interrupted)
+            except Sleep:
+                result['sleep'] = True
+            except Exception as error:
+                result['error'] = error
+        worker = threading.Thread(target=answer, daemon=True)
+        worker.start()
+        try:
+            while worker.is_alive():
+                worker.join(0.1)
+        except KeyboardInterrupt:  # Ctrl+C: stop this answer, keep going
+            interrupted.set()
+            out.stop()
+            worker.join(5)
+            print(' (stopped)')
+        out.finish()
+        if result.get('sleep'):
+            return
+        if 'error' in result:
+            message = brain_.problem(result['error'])
+            if message is None:
+                import traceback
+                traceback.print_exception(result['error'])
+                message = 'Sorry, something went wrong there.'
+            print(message)
+        said = result.get('said') or ''
+        if said or not interrupted.is_set():
+            recall.record(conv, text, said)
+        if getattr(brain_, 'broken', False):
+            fallback = cli_brain(settings)
+            if fallback:
+                brain_ = fallback
+                helpers.BRAIN_NAME = brain_.name
+                print('(Using Claude Code instead for now.)')
+        if getattr(brain_, 'ended', False):  # it said goodbye: the next request starts afresh
+            brain_.forget_conversation()
+            conv = recall.start_conversation()
+            print('(Conversation over. The next request starts a new one.)\n')
+
+
 def ask_for_claude_key(settings) -> dict:
     """Once: offer to save a Claude API key (the fastest brain). Enter skips."""
     if 'anthropic_api_key' in settings or settings.get('brain') == 'local' or not sys.stdin.isatty():
@@ -326,6 +418,13 @@ if __name__ == '__main__':
         sys.exit(1)
     helpers.BRAIN_NAME = brain_.name
     helpers.write_status()  # the hub can see JARVIS is running from now on
+    if '--text' in sys.argv:  # typing instead of talking: no microphone, menu bar or HUD
+        aloud = '--speak' in sys.argv
+        if aloud:
+            voice_lib.warm_up()
+        face_check(settings)
+        type_to_jarvis(settings, brain_, aloud)
+        sys.exit(0)
     helpers.start_hearing(settings)  # loads speech recognition while your face is checked
     voice_lib.warm_up()              # and the voice
     recall.warm_up()                 # and conversation search (downloads its model the first time)

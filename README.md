@@ -32,6 +32,18 @@ listening, the face lock and start-up options. **Save** restarts JARVIS so the c
 effect. It answers to any name you give it, short ones like "Max" included, and "Hey Jarvis"
 keeps working too.
 
+## Typing instead of talking
+
+To type to JARVIS in a terminal, open one in its folder and run
+
+    .venv\Scripts\python.exe jarvis.py --text      (Windows, in the Windows folder)
+    .venv/bin/python jarvis.py --text              (Mac, in the Mac folder)
+
+Type a request and press Enter; the answer prints as it's written. It's the same JARVIS (same
+brain, tools, memory and quick commands), with no microphone, menu bar or orb. Add `--speak` to
+hear the answers too. Ctrl+C stops an answer; `exit` quits. Run Start JARVIS once first, so it's
+installed.
+
 ## A free model on your computer
 
 JARVIS can think with a free model running on your own computer instead of Claude. Nothing goes
