@@ -32,6 +32,24 @@ listening, the face lock and start-up options. **Save** restarts JARVIS so the c
 effect. It answers to any name you give it, short ones like "Max" included, and "Hey Jarvis"
 keeps working too.
 
+## A free model on your computer
+
+JARVIS can think with a free model running on your own computer instead of Claude. Nothing goes
+to the internet and nothing is billed; it's slower and less clever than Claude on long tasks.
+
+1. Install [LM Studio](https://lmstudio.ai) (it runs on AMD Radeon cards through Vulkan, as well as
+   NVIDIA). Ollama works too.
+2. In LM Studio, download a model whose page lists both **Vision** and **Tool use**, sized to fit
+   your graphics card's memory (a 4-bit model of about 7 to 12 billion parameters fits in 12 GB).
+3. Load it with a **context length of at least 16000**, and start the server (Developer tab).
+4. In `user_settings.json`, add `"brain": "local"`.
+
+To look something up, it opens the search results in your browser and reads them off the screen,
+scrolling and clicking like you would. Optional settings: `"local_model"` (which loaded model to
+use; otherwise the first one), `"local_url"` (Ollama's is `http://localhost:11434/v1`), and
+`"local_vision": false` for a model that can't see images. If the local server isn't running,
+JARVIS switches to Claude Code.
+
 ## On your phone
 
 `phone/jarvis-phone.html` is a phone version, published as a claude.ai page: open it in your

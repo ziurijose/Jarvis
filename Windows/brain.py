@@ -8,7 +8,9 @@ Two ways to reach Claude:
 Both stream: JARVIS starts speaking at the first sentence, while the rest is still being written.
 Simple commands ("pause", "volume 40", "open Spotify", quick.py) never reach Claude: JARVIS does
 them itself, at once and for free.
-make_brain() picks the API when a key is saved, else Claude Code, else None.
+  LocalBrain - a free model on this computer, through LM Studio or Ollama ("brain": "local").
+make_brain() picks the local model when chosen, else the API when a key is saved, else Claude
+Code, else None.
 """
 import base64
 import datetime
@@ -923,7 +925,230 @@ def cli_brain(settings):
     return CliBrain(claude, settings) if claude else None
 
 
+# ---- a free model on this computer ------------------------------------------------------
+
+LOCAL_URL = 'http://localhost:1234/v1'  # LM Studio's server; Ollama's is http://localhost:11434/v1
+# A local model can't search the web by itself, so it does what a person would: opens the
+# search results in the browser and reads them off the screen.
+LOCAL_RULES = '''
+You can't search the web directly. For anything current or that you are unsure of (weather,
+news, scores, facts), open the results with the search tool, then look_at_screen to read them;
+scroll, click or type as needed (open a result, accept a cookie banner), and answer from what you
+see. Use your tools through the tool interface; never write a tool call as text in your reply.'''
+NO_EYES = '''
+You can't see the screen with this model. For anything current, open the results with the
+search tool and tell the user they're on screen; for other tasks that need to look at the
+screen, say you can't see it.'''
+
+
+class LocalProblem(RuntimeError):
+    """Something the user can fix on the local model's side; the message says what."""
+
+
+class LocalBrain(Brain):
+    """A free model running on this computer, through LM Studio or Ollama (both serve the same
+    OpenAI-style API), with the same tools as Claude. It searches the web by opening the results
+    on screen and reading them, so it needs a model that can see images; with one that can't,
+    set "local_vision": false in user_settings.json."""
+    name = 'Local model'
+    broken = False  # the server isn't running: jarvis.py switches to Claude Code if it can
+    ended = False
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.url = (settings.get('local_url') or LOCAL_URL).rstrip('/')
+        self.model = settings.get('local_model') or ''
+        self.messages = []
+        self.last_used = 0
+        self.tools_by_name = dict(TOOLS)
+        if settings.get('local_vision') is False:
+            self.tools_by_name.pop('look_at_screen', None)
+        self.tools = [{'type': 'function', 'function': {'name': n, 'description': d, 'parameters': s}}
+                      for n, (_f, d, s) in self.tools_by_name.items()]
+        self.system = self._system()
+        # Load the model now, in the background, so the first request doesn't wait for it.
+        threading.Thread(target=self._warm_up, daemon=True).start()
+
+    def _system(self):
+        sees = 'look_at_screen' in self.tools_by_name
+        prompt = system_prompt(self.settings).replace(  # Claude's web_search isn't here
+            'and web_search for anything current', 'and the search tool for anything current')
+        return prompt + (LOCAL_RULES if sees else NO_EYES)
+
+    def _model(self):
+        """The model named in settings, else the first one the server has loaded."""
+        if not self.model:
+            import requests
+            listed = requests.get(self.url + '/models', timeout=5)
+            listed.raise_for_status()
+            ids = [m.get('id', '') for m in listed.json().get('data', [])]
+            ids = [i for i in ids if i and 'embed' not in i.lower()]  # embedding models can't chat
+            if not ids:
+                raise LocalProblem('No model is loaded. Load one in LM Studio, or download one with Ollama.')
+            self.model = ids[0]
+        return self.model
+
+    def _warm_up(self):
+        try:
+            import requests
+            requests.post(self.url + '/chat/completions', timeout=(5, 300), json={
+                'model': self._model(), 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hi'}]})
+            print(f'Local model: {self.model} at {self.url}')
+        except Exception as error:  # the first request reports it properly
+            print(f'The local model is not ready yet ({error}).')
+
+    def handle(self, text, speech, interrupted):
+        said = self._locally(text, speech)
+        if said is not None:
+            return said
+        try:
+            return self._handle(text, speech, interrupted)
+        finally:
+            control.release_all()
+
+    def _handle(self, text, speech, interrupted):
+        note = self._local_note()  # this conversation's (the last one's were cleared when it ended)
+        if time.time() - self.last_used > FRESH_AFTER:
+            self.forget_conversation()
+        self.last_used = time.time()
+        self.ended = False
+        self.messages.append({'role': 'user', 'content': f'{note}{now_note()} {text}'})
+        spoken = Spoken(speech)
+        for _step in range(MAX_STEPS):
+            reply, calls = self._stream(spoken, interrupted)
+            if reply is None:
+                return spoken_part(spoken.raw)  # the user spoke over JARVIS
+            message = {'role': 'assistant', 'content': reply.strip()}
+            if calls:
+                message['tool_calls'] = [{'id': c['id'], 'type': 'function',
+                                          'function': {'name': c['name'], 'arguments': c['arguments'] or '{}'}}
+                                         for c in calls]
+            self.messages.append(message)
+            if not calls:
+                self.ended = spoken.ended
+                return spoken.finish()
+            self._run_calls(calls, text, spoken)
+        return spoken.finish()
+
+    def _run_calls(self, calls, heard, spoken):
+        images, failed = [], False
+        for call in calls:
+            name = call['name']
+            try:
+                args = json.loads(call['arguments'] or '{}')
+            except ValueError:
+                args = None
+            if failed and name in MOUSE_AND_KEYS:
+                content, error = SKIPPED, True
+            elif not isinstance(args, dict):
+                content, error = f'The arguments for {name} were not valid JSON. Call it again.', True
+            else:
+                try:
+                    content, error = run_tool(name, args, heard)
+                except Sleep:
+                    spoken.finish()
+                    raise
+            failed = failed or error
+            if isinstance(content, list):  # look_at_screen: a note and the screenshot
+                images += [b['source']['data'] for b in content if b.get('type') == 'image']
+                content = ' '.join(b['text'] for b in content if b.get('type') == 'text') + \
+                    ' The screenshot is in the next message.'
+            self.messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': str(content)})
+        if images:
+            self.messages.append({'role': 'user', 'content': [{'type': 'text', 'text': 'The screenshot:'}] + [
+                {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + data}} for data in images]})
+
+    def _stream(self, spoken, interrupted):
+        """One reply, spoken as it arrives. Returns (text, tool calls), or (None, None) when
+        the user interrupted."""
+        import requests
+        body = {'model': self._model(), 'stream': True, 'max_tokens': 2048, 'tools': self.tools,
+                'messages': [{'role': 'system', 'content': self.system}] + self.messages}
+        raw, fed, calls = '', 0, {}
+        with requests.post(self.url + '/chat/completions', json=body, stream=True, timeout=(5, 300)) as response:
+            if response.status_code >= 400:
+                raise LocalProblem(self._http_problem(response))
+            for line in response.iter_lines(decode_unicode=True):
+                if interrupted.is_set():
+                    return None, None
+                if not line or not line.startswith('data:'):
+                    continue
+                data = line[5:].strip()
+                if data == '[DONE]':
+                    break
+                try:
+                    chunk = json.loads(data)
+                except ValueError:
+                    continue
+                for choice in chunk.get('choices') or []:
+                    delta = choice.get('delta') or {}
+                    if delta.get('content'):
+                        raw += delta['content']
+                        ready = _without_thinking(raw, final=False)
+                        if len(ready) > fed:
+                            spoken.add(ready[fed:])
+                            fed = len(ready)
+                    for part in delta.get('tool_calls') or []:
+                        call = calls.setdefault(part.get('index', len(calls)), {'id': '', 'name': '', 'arguments': ''})
+                        call['id'] = call['id'] or part.get('id') or ''
+                        function = part.get('function') or {}
+                        call['name'] = call['name'] or function.get('name') or ''
+                        arguments = function.get('arguments')
+                        if arguments:
+                            call['arguments'] += arguments if isinstance(arguments, str) else json.dumps(arguments)
+        text = _without_thinking(raw, final=True)
+        if len(text) > fed:
+            spoken.add(text[fed:])
+        found = [c for _i, c in sorted(calls.items()) if c['name']]
+        for i, call in enumerate(found):
+            call['id'] = call['id'] or f'call_{len(self.messages)}_{i}'
+        return text, found
+
+    def _http_problem(self, response):
+        detail = response.text[:300]
+        if response.status_code == 404 or 'not found' in detail.lower():
+            return (f"The local model {self.model} isn't available. Load it in LM Studio, or set local_model "
+                    'in user_settings.json to one you have.')
+        if 'image' in detail.lower() or 'vision' in detail.lower():
+            if self.messages and isinstance(self.messages[-1].get('content'), list):
+                self.messages.pop()  # the screenshot it can't take
+            return ("The loaded model can't see images, so I can't look at the screen. Load a vision model, "
+                    'or set local_vision to false in user_settings.json.')
+        if 'context' in detail.lower():
+            self.forget_conversation()
+            return ("That was too long for the local model's memory. Load the model with a context length of "
+                    'at least 16000.')
+        return f'The local model had a problem: {detail[:120]}'
+
+    def forget_conversation(self):
+        self.messages = []
+        self.done_locally = ()
+        self.system = self._system()  # picks up newly remembered facts
+
+    def problem(self, error):
+        import requests
+        if isinstance(error, requests.ConnectionError):
+            self.broken = True
+            return "I can't reach the local model. Start LM Studio's server, or Ollama, and load a model."
+        if isinstance(error, requests.Timeout):
+            return 'The local model took too long to answer.'
+        if isinstance(error, (LocalProblem, requests.HTTPError)):
+            return str(error)
+        return None
+
+
+def _without_thinking(text, final):
+    """A reply without the <think>...</think> part some models write first. While it is still
+    arriving, a '<' near the end is held back: it may be the start of one."""
+    text = re.sub(r'(?s)<think>.*?(</think>|$)', '', text)
+    if not final and '<' in text[-8:]:
+        text = text[:text.rindex('<')]
+    return text
+
+
 def make_brain(settings):
+    if settings.get('brain') == 'local':  # a free model on this computer (LM Studio or Ollama)
+        return LocalBrain(settings)
     key = settings.get('anthropic_api_key') or ''
     if key:
         try:

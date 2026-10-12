@@ -205,7 +205,7 @@ def converse(settings, brain_) -> None:
 
 def ask_for_claude_key(settings) -> dict:
     """Once: offer to save a Claude API key (the fastest brain). Enter skips."""
-    if 'anthropic_api_key' in settings or not sys.stdin.isatty():
+    if 'anthropic_api_key' in settings or settings.get('brain') == 'local' or not sys.stdin.isatty():
         return settings
     print('\nJARVIS can use Claude to understand anything you say.')
     print('Fastest: a Claude API key (with credit) from https://platform.claude.com/settings/keys')
