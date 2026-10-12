@@ -1,36 +1,67 @@
-# This is a basic workflow to help you get started with Actions
-
 name: CI
 
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  folders-match:
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    timeout-minutes: 5
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+      - name: Check the Mac and Windows folders share identical files
+        run: python3 sync_folders.py --check
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - folder: Mac
+            requirements: requirements-mac.txt
+            linux_skips: '^(rumps|pyobjc)'
+          - folder: Windows
+            requirements: requirements-windows.txt
+            linux_skips: '^(pycaw|winrt)'
+    defaults:
+      run:
+        working-directory: ${{ matrix.folder }}
+    steps:
       - uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Compile every Python file
+        run: python -m py_compile *.py
+
+      - name: Lint for undefined names and unused imports
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          pip install flake8
+          flake8 --select=F *.py
+
+      - name: Install JARVIS's packages (the ones that install on Linux)
+        run: |
+          grep -vE '${{ matrix.linux_skips }}' ${{ matrix.requirements }} > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt
+
+      - name: Import every module
+        run: |
+          for f in *.py; do
+            echo "import ${f%.py}"
+            timeout 60 python -c "import ${f%.py}"
+          done
+
+      - name: Run the tests
+        run: python -m unittest -v
+
+      - name: Check the shell scripts
+        if: matrix.folder == 'Mac'
+        run: for f in setup_mac.sh add_speech.sh add_local_model.sh "Start JARVIS.command"; do bash -n "$f"; done

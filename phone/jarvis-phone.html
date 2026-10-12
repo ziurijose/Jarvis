@@ -1,0 +1,712 @@
+<title>Pocket JARVIS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one phone screen like the desktop orb: a status header, the conversation, running timers, and the composer at the bottom. */
+:root {
+  --void: #0F1113;      /* the desktop orb's background */
+  --panel: #171A1E;
+  --raised: #22262B;
+  --line: #2C3137;
+  --text: #F7F7F8;
+  --muted: #9EA4AB;
+  --lime: #D1FE17;      /* the orb's accent, as a fill */
+  --lime-ink: #0F1113;  /* text on lime */
+  --accent-text: #D1FE17;
+  --danger: #FF8A7A;
+  --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --void: #F3F4EE; --panel: #FFFFFF; --raised: #E6E8DF; --line: #D5D8CC; --text: #15181B;
+    --muted: #5B6168; --lime: #CDF51C; --lime-ink: #15181B; --accent-text: #4E6300; --danger: #B3261E;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --void: #F3F4EE; --panel: #FFFFFF; --raised: #E6E8DF; --line: #D5D8CC; --text: #15181B;
+  --muted: #5B6168; --lime: #CDF51C; --lime-ink: #15181B; --accent-text: #4E6300; --danger: #B3261E;
+  color-scheme: light;
+}
+
+html, body { height: 100%; }
+body { background: var(--void); color: var(--text); font: 16px/1.45 var(--body); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+
+.app { height: 100%; max-width: 640px; margin: 0 auto; padding-inline: 16px; display: flex; flex-direction: column; }
+
+/* header */
+.top { display: flex; align-items: center; gap: 12px; padding-block: 12px; border-bottom: 1px solid var(--line); }
+.orb { width: 38px; height: 38px; flex: none; border-radius: 50%; background: var(--panel); border: 1px solid var(--line);
+  display: grid; place-items: center; }
+.orb i { width: 12px; height: 12px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 0 var(--lime); }
+.app[data-state="thinking"] .orb i, .app[data-state="speaking"] .orb i { animation: pulse 1.2s ease-in-out infinite; }
+.app[data-state="offline"] .orb i { background: var(--muted); }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--lime) 55%, transparent); }
+  50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--lime) 0%, transparent); } }
+.who { min-width: 0; flex: 1; }
+.who h1 { margin: 0; font: 700 1.05rem/1.2 var(--display); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who p { margin: 2px 0 0; font: 500 0.72rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.icon { width: 40px; height: 40px; flex: none; border-radius: 10px; border: 1px solid var(--line); background: var(--panel);
+  display: grid; place-items: center; }
+.icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon[aria-pressed="false"] { color: var(--muted); }
+
+/* conversation */
+.log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-block: 16px; }
+.msg { max-width: 86%; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.msg .text { padding: 10px 14px; border-radius: 16px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.msg.you { align-self: flex-end; }
+.msg.you .text { background: var(--lime); color: var(--lime-ink); border-bottom-right-radius: 4px; }
+.msg.jarvis { align-self: flex-start; }
+.msg.jarvis .text { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.msg.pending .text { color: var(--muted); }
+.msg.note .text { background: transparent; border: 1px dashed var(--line); color: var(--muted); font-size: 0.92rem; }
+.links { display: flex; flex-direction: column; gap: 6px; }
+.links a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--raised); color: var(--text); text-decoration: none; font-weight: 600; }
+.links a span { min-width: 0; overflow-wrap: anywhere; }
+.links a small { margin-left: auto; flex: none; font: 500 0.7rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-text); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips button { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 0.92rem; }
+
+/* timers */
+.timers { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; }
+.timer { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+.timer b { font: 500 0.95rem var(--mono); font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.timer span { font-size: 0.85rem; color: var(--muted); max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer button { width: 28px; height: 28px; border-radius: 50%; border: none; background: var(--raised); color: var(--muted); }
+
+/* composer */
+.compose { padding-block: 10px 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.hint { margin: 0; font-size: 0.8rem; color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: flex-end; }
+.row textarea { flex: 1; min-width: 0; resize: none; max-height: 7.5em; padding: 11px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--panel); font-size: 16px; line-height: 1.4; }
+.go { height: 46px; padding-inline: 18px; border-radius: 14px; border: none; background: var(--lime); color: var(--lime-ink);
+  font-weight: 600; flex: none; }
+.go.stop { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
+.go:disabled { opacity: 0.5; }
+
+/* settings */
+.sheet { position: fixed; inset: 0; z-index: 5; background: var(--void); overflow-y: auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+.sheet-in { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.sheet-head { display: flex; align-items: center; gap: 12px; }
+.sheet-head h2 { flex: 1; margin: 0; font: 700 1.05rem var(--display); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label, .group-title { font: 500 0.72rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.field input[type="text"], .field select { padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); font-size: 16px; }
+.field input[type="range"] { accent-color: var(--lime); }
+.inline { display: flex; align-items: center; gap: 10px; }
+.inline input { width: 20px; height: 20px; accent-color: var(--lime); }
+.plain { padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); align-self: flex-start; }
+.facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.facts li { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.facts li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.facts li button { border: none; background: var(--raised); border-radius: 8px; padding: 6px 10px; color: var(--danger); font-size: 0.85rem; }
+.muted { margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+@media (prefers-reduced-motion: reduce) { .orb i { animation: none !important; } }
+</style>
+
+<div class="app" id="app" data-state="ready">
+  <header class="top">
+    <div class="orb" aria-hidden="true"><i></i></div>
+    <div class="who">
+      <h1 id="title">Jarvis</h1>
+      <p id="status">Ready</p>
+    </div>
+    <button class="icon" id="voiceBtn" aria-pressed="true" aria-label="Read answers aloud">
+      <svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+    </button>
+    <button class="icon" id="settingsBtn" aria-label="Settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <main class="log" id="log" aria-live="polite"></main>
+
+  <div class="timers" id="timers" hidden></div>
+
+  <form class="compose" id="compose">
+    <p class="hint">To talk, tap the box, then the microphone on your keyboard.</p>
+    <div class="row">
+      <textarea id="box" rows="1" placeholder="Ask anything" enterkeyhint="send" aria-label="Message"></textarea>
+      <button class="go" id="go" type="submit">Send</button>
+    </div>
+  </form>
+</div>
+
+<section class="sheet" id="sheet" hidden aria-label="Settings">
+  <div class="sheet-in">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="plain" id="closeSheet" type="button">Done</button>
+    </div>
+    <div class="field">
+      <label for="youName">Your name</label>
+      <input type="text" id="youName" autocomplete="given-name" placeholder="What it calls you">
+    </div>
+    <div class="field">
+      <label for="aiName">Its name</label>
+      <input type="text" id="aiName" placeholder="Jarvis">
+    </div>
+    <div class="field">
+      <label for="voicePick">Voice</label>
+      <select id="voicePick"></select>
+    </div>
+    <div class="field">
+      <label for="rate">Speaking speed</label>
+      <input type="range" id="rate" min="0.7" max="1.5" step="0.05">
+    </div>
+    <div class="inline">
+      <input type="checkbox" id="speakOn">
+      <label for="speakOn">Read answers aloud</label>
+    </div>
+    <button class="plain" id="testVoice" type="button">Test the voice</button>
+    <div class="field">
+      <span class="group-title">What it remembers about you</span>
+      <ul class="facts" id="facts"></ul>
+      <p class="muted" id="factsNote"></p>
+    </div>
+    <button class="plain" id="newChat" type="button">Start a new conversation</button>
+  </div>
+</section>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const app = $('app'), log = $('log'), box = $('box'), go = $('go');
+
+  // ---- per-phone preferences (names, voice) --------------------------------------------
+  const PREFS_KEY = 'pocket-jarvis.prefs';
+  const prefs = Object.assign({ you: '', name: 'Jarvis', voice: '', rate: 1, speak: true }, read(PREFS_KEY, {}));
+  function read(key, fallback) {
+    try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch (e) { return fallback; }
+  }
+  function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) { /* this phone keeps nothing */ } }
+  const assistant = () => (prefs.name || 'Jarvis').trim() || 'Jarvis';
+
+  // ---- state ---------------------------------------------------------------------------
+  let sample = null, canTools = false;      // Claude, once the page is allowed to ask it
+  let memRef = null, facts = [], saving = Promise.resolve();  // remembered facts, private to the viewer
+  let turns = [];                           // this conversation, for Claude (it remembers nothing itself)
+  let ctl = null, busy = false;
+  let linksBox = null;                      // where show_link puts buttons for the answer being written
+
+  function setState(state) {
+    app.dataset.state = state;
+    $('status').textContent = { ready: 'Ready', thinking: 'Thinking', speaking: 'Speaking', offline: 'Claude not connected' }[state];
+  }
+
+  // ---- speaking ------------------------------------------------------------------------
+  const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
+  let talking = 0, unlocked = false, audio = null;
+
+  function voices() { try { return synth ? synth.getVoices() : []; } catch (e) { return []; } }
+  function pickVoice() {
+    const all = voices();
+    return all.find((v) => v.voiceURI === prefs.voice)
+      || all.find((v) => v.lang && v.lang.startsWith((navigator.language || 'en').slice(0, 2)) && v.localService)
+      || all.find((v) => v.lang && v.lang.startsWith('en')) || null;
+  }
+  function forSpeech(text) {
+    return text.replace(/https?:\/\/\S+/g, '').replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  function say(text) {
+    if (!synth || !prefs.speak) return;
+    const words = forSpeech(text);
+    if (!words) return;
+    const u = new SpeechSynthesisUtterance(words);
+    const v = pickVoice();
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = Number(prefs.rate) || 1;
+    talking++;
+    setState('speaking');
+    u.onend = u.onerror = () => {
+      talking = Math.max(0, talking - 1);
+      if (!talking && !busy) setState(sample ? 'ready' : 'offline');
+    };
+    synth.speak(u);
+  }
+  function hush() {
+    if (synth) synth.cancel();
+    talking = 0;
+  }
+  // Phones only let a page make sound after a tap: start the voice and the timer chime from one.
+  function unlock() {
+    if (synth && !unlocked) {
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      synth.speak(u);
+      unlocked = true;
+    }
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
+    } catch (e) { audio = null; }
+  }
+  function chime() {
+    if (!audio) return;
+    const now = audio.currentTime;
+    [880, 660, 880].forEach((hz, i) => {
+      const osc = audio.createOscillator(), gain = audio.createGain();
+      osc.frequency.value = hz;
+      gain.gain.setValueAtTime(0.0001, now + i * 0.28);
+      gain.gain.exponentialRampToValueAtTime(0.3, now + i * 0.28 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.28 + 0.25);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(now + i * 0.28);
+      osc.stop(now + i * 0.28 + 0.26);
+    });
+  }
+
+  // ---- the conversation on screen ------------------------------------------------------
+  function addMsg(who, text, kind) {
+    const el = document.createElement('div');
+    el.className = 'msg ' + who + (kind ? ' ' + kind : '');
+    const bubble = document.createElement('div');
+    bubble.className = 'text';
+    bubble.textContent = text;
+    el.append(bubble);
+    log.append(el);
+    log.scrollTop = log.scrollHeight;
+    return { el, bubble };
+  }
+  function shown(text) { return text.replace(/\*\*|__|`/g, '').replace(/^#+\s*/gm, ''); }
+
+  function welcome() {
+    log.textContent = '';
+    const hi = prefs.you ? `Hi ${prefs.you}.` : 'Hi.';
+    const { el } = addMsg('jarvis', `${hi} I'm ${assistant()}. Ask me anything, or try one of these.`);
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    ['What time is it?', 'Set a 10 minute timer for the pasta', 'Find lofi music on YouTube',
+     'Remember that I take my coffee black', 'Give me a quick dinner idea'].forEach((q) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = q;
+      b.onclick = () => send(q);
+      chips.append(b);
+    });
+    el.append(chips);
+  }
+
+  // ---- things answered right here, without Claude --------------------------------------
+  function clean(text) { return text.toLowerCase().replace(/[^\w\s']/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/^(ok|okay|hey|so|um|please|can you|could you) /, '').replace(/ (please|now|thanks|thank you)$/, ''); }
+  function spokenTime(d) {
+    const h = d.getHours() % 12 || 12, ap = d.getHours() < 12 ? 'AM' : 'PM';
+    return d.getMinutes() ? `It's ${h}:${String(d.getMinutes()).padStart(2, '0')} ${ap}.` : `It's ${h} ${ap}.`;
+  }
+  function spokenDate(d) {
+    const n = d.getDate(), s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th';
+    const day = d.toLocaleDateString('en-US', { weekday: 'long' }), month = d.toLocaleDateString('en-US', { month: 'long' });
+    return `It's ${day}, ${month} ${n}${s}.`;
+  }
+  function localAnswer(text) {
+    const said = clean(text);
+    if (/^(what time is it( right now)?|what's the time|whats the time|what is the time|time)$/.test(said)) return spokenTime(new Date());
+    if (/^(what's the date|whats the date|what is the date|what's today's date|what day is it|what's today|what day is today)( today)?$/.test(said)) return spokenDate(new Date());
+    return null;
+  }
+  const STOP = /^(stop|stop talking|be quiet|quiet|shut up|never mind|nevermind|cancel|enough)$/;
+
+  // ---- timers --------------------------------------------------------------------------
+  const timers = [];
+  let timerId = 0, ticker = null;
+  function addTimer(seconds, label) {
+    const t = { id: ++timerId, label: label || '', end: Date.now() + seconds * 1000 };
+    t.handle = setTimeout(() => ring(t), seconds * 1000);
+    timers.push(t);
+    renderTimers();
+    return t;
+  }
+  function dropTimer(t) {
+    clearTimeout(t.handle);
+    timers.splice(timers.indexOf(t), 1);
+    renderTimers();
+  }
+  function ring(t) {
+    dropTimer(t);
+    chime();
+    try { navigator.vibrate && navigator.vibrate([300, 150, 300]); } catch (e) { /* no vibration here */ }
+    const words = t.label ? `Time's up for ${t.label}.` : "Time's up.";
+    addMsg('jarvis', words);
+    say(words);
+  }
+  function left(t) {
+    const s = Math.max(0, Math.round((t.end - Date.now()) / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(r).padStart(2, '0');
+  }
+  function renderTimers() {
+    const strip = $('timers');
+    strip.textContent = '';
+    strip.hidden = !timers.length;
+    for (const t of timers) {
+      const chip = document.createElement('div');
+      chip.className = 'timer';
+      const time = document.createElement('b');
+      time.textContent = left(t);
+      chip.append(time);
+      if (t.label) {
+        const name = document.createElement('span');
+        name.textContent = t.label;
+        chip.append(name);
+      }
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.textContent = '×';
+      x.setAttribute('aria-label', 'Cancel timer' + (t.label ? ' ' + t.label : ''));
+      x.onclick = () => dropTimer(t);
+      chip.append(x);
+      strip.append(chip);
+    }
+    if (timers.length && !ticker) ticker = setInterval(renderTimers, 1000);
+    if (!timers.length && ticker) { clearInterval(ticker); ticker = null; }
+  }
+
+  // ---- memory --------------------------------------------------------------------------
+  function saveFacts() {
+    saving = saving.then(() => memRef.set({ facts })).catch(() => {
+      $('factsNote').textContent = "Couldn't save that change. Check your connection and try again.";
+    });
+    return saving;
+  }
+  function renderFacts() {
+    const list = $('facts');
+    list.textContent = '';
+    facts.forEach((f, i) => {
+      const li = document.createElement('li');
+      const text = document.createElement('span');
+      text.textContent = f;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = 'Forget';
+      del.onclick = () => { facts = facts.filter((_, j) => j !== i); renderFacts(); saveFacts(); };
+      li.append(text, del);
+      list.append(li);
+    });
+    $('factsNote').textContent = !memRef
+      ? 'Memory needs you to be signed in to claude.ai. Without it, it forgets everything when you close the page.'
+      : facts.length ? '' : `Nothing yet. Say "remember that..." and ${assistant()} keeps it here, private to you.`;
+  }
+
+  // ---- what Claude can do on this page -------------------------------------------------
+  const SEARCH = {
+    google: ['Google', 'https://www.google.com/search?q='], youtube: ['YouTube', 'https://www.youtube.com/results?search_query='],
+    maps: ['Maps', 'https://www.google.com/maps/search/'], amazon: ['Amazon', 'https://www.amazon.com/s?k='],
+    wikipedia: ['Wikipedia', 'https://en.wikipedia.org/w/index.php?search='], spotify: ['Spotify', 'https://open.spotify.com/search/'],
+  };
+  function showLink(href, label, where) {
+    if (!linksBox) return;
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    const name = document.createElement('span');
+    name.textContent = label;
+    const tag = document.createElement('small');
+    tag.textContent = 'Open ' + where;
+    a.append(name, tag);
+    linksBox.append(a);
+    linksBox.hidden = false;
+    log.scrollTop = log.scrollHeight;
+  }
+  const TOOLS = [
+    {
+      name: 'show_link',
+      description: 'Show the user a button that opens search results or a web page in their browser. You cannot open it yourself: they tap it. Give site and query for search results, or url for one page. Returns "shown".',
+      inputSchema: { type: 'object', properties: {
+        site: { type: 'string', enum: Object.keys(SEARCH) }, query: { type: 'string' },
+        url: { type: 'string', description: 'A full https address, for a specific page' },
+        label: { type: 'string', description: 'Short button text, e.g. "Lofi music on YouTube"' } } },
+      execute(input) {
+        if (input.url) {
+          let url;
+          try { url = new URL(/^https?:\/\//i.test(String(input.url)) ? String(input.url) : 'https://' + input.url); } catch (e) { throw new Error('not a web address'); }
+          if (!/^https?:$/.test(url.protocol)) throw new Error('only web addresses can be opened');
+          showLink(url.href, String(input.label || url.hostname), url.hostname.replace(/^www\./, ''));
+          return 'shown';
+        }
+        const site = SEARCH[input.site] ? String(input.site) : 'google';
+        const query = String(input.query || '').trim();
+        if (!query) throw new Error('give a query or a url');
+        showLink(SEARCH[site][1] + encodeURIComponent(query), String(input.label || query), SEARCH[site][0]);
+        return 'shown';
+      },
+    },
+    {
+      name: 'set_timer',
+      description: 'Start a countdown timer on this page. It chimes and speaks when it ends, as long as the page stays open. Returns when it ends.',
+      inputSchema: { type: 'object', properties: { seconds: { type: 'number' }, label: { type: 'string' } }, required: ['seconds'] },
+      execute(input) {
+        const seconds = Math.round(Number(input.seconds));
+        if (!(seconds > 0 && seconds <= 86400)) throw new Error('seconds must be between 1 and 86400');
+        const t = addTimer(seconds, String(input.label || '').slice(0, 40));
+        return 'ends at ' + new Date(t.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      },
+    },
+    {
+      name: 'cancel_timers',
+      description: 'Cancel running timers: all of them, or those whose label contains the given text. Returns how many were cancelled.',
+      inputSchema: { type: 'object', properties: { label: { type: 'string' } } },
+      execute(input) {
+        const want = String(input.label || '').toLowerCase();
+        const gone = timers.filter((t) => !want || t.label.toLowerCase().includes(want));
+        gone.forEach(dropTimer);
+        return gone.length + ' cancelled';
+      },
+    },
+    {
+      name: 'remember',
+      description: 'Remember a fact about the user for future conversations. Returns "saved".',
+      inputSchema: { type: 'object', properties: { fact: { type: 'string' } }, required: ['fact'] },
+      async execute(input) {
+        if (!memRef) throw new Error('memory is not available: the user is not signed in to claude.ai');
+        const fact = String(input.fact || '').trim().slice(0, 300);
+        if (!fact) throw new Error('empty fact');
+        facts = [...facts, fact].slice(-100);
+        renderFacts();
+        await saveFacts();
+        return 'saved';
+      },
+    },
+    {
+      name: 'forget',
+      description: 'Forget remembered facts that mention something. Returns how many were forgotten.',
+      inputSchema: { type: 'object', properties: { about: { type: 'string' } }, required: ['about'] },
+      async execute(input) {
+        if (!memRef) throw new Error('memory is not available');
+        const about = String(input.about || '').toLowerCase().trim();
+        if (!about) throw new Error('say what to forget');
+        const kept = facts.filter((f) => !f.toLowerCase().includes(about));
+        const n = facts.length - kept.length;
+        facts = kept;
+        renderFacts();
+        await saveFacts();
+        return n + ' forgotten';
+      },
+    },
+  ];
+
+  function rules() {
+    const now = new Date();
+    const you = prefs.you || 'the user';
+    const lines = [
+      `You are ${assistant()}, ${you}'s voice assistant, running on their phone. You talk like a quick-witted friend: warm, relaxed, a little playful.`,
+      'Everything you write is read aloud, so: talk the way people talk, with short sentences and everyday words. Answer first, usually in one or two sentences, then stop. Go longer only when asked. No lists, markdown, emoji or web addresses. Say numbers and times the way people say them.',
+      `Now: ${now.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
+      "You cannot browse the web or see live information (weather, news, scores, prices, opening hours). For those, say so in a few words and use show_link so they can look it up with one tap. Never make up current facts.",
+      'Use show_link whenever they want to see, watch, play, find or open something online: for a video or song, YouTube or Spotify search results. Then tell them to tap the button.',
+      'Use set_timer for timers and reminders within the next day; it only rings while this page is open, so mention that the first time.',
+      'Use remember when they tell you something about themselves worth keeping, or ask you to remember it.',
+      `Call them ${you} now and then, not in every reply.`,
+    ];
+    if (facts.length) lines.push('What you remember about them:\n' + facts.map((f) => '- ' + f).join('\n'));
+    if (timers.length) lines.push('Running timers: ' + timers.map((t) => `${t.label || 'unnamed'} (${left(t)} left)`).join(', ') + '.');
+    return lines.join('\n');
+  }
+
+  const PROBLEMS = {
+    not_granted: "This page isn't allowed to ask Claude. Allow it from the page's permissions, then reload.",
+    sampling_disabled: "Claude isn't available on this account.",
+    not_declared: "This page can't reach Claude anymore. Reload it.",
+    capability_disabled: "This app can't reach Claude from here. Try opening the page in your phone's browser.",
+    capability_removed: "This app can't reach Claude from here. Try opening the page in your phone's browser.",
+    tools_unavailable: "This app can't run timers or links for Claude. Try your phone's browser.",
+    rate_limited: "You've hit your Claude usage limit for now. Try again a little later.",
+    session_expired: 'Sign in to claude.ai again, then reload this page.',
+    refused: "I can't help with that one.",
+    empty_completion: "I didn't get an answer for that. Try asking another way.",
+    prompt_too_large: "This conversation got too long. Start a new one in Settings.",
+  };
+
+  // ---- asking ---------------------------------------------------------------------------
+  async function send(raw) {
+    const text = String(raw || '').trim();
+    if (!text || busy) return;
+    unlock();
+    hush();
+    box.value = '';
+    fit();
+    if (STOP.test(clean(text))) { setState(sample ? 'ready' : 'offline'); return; }
+    addMsg('you', text);
+
+    const quick = localAnswer(text);
+    if (quick) {
+      addMsg('jarvis', quick);
+      say(quick);
+      turns.push({ role: 'user', content: text }, { role: 'assistant', content: quick });
+      return;
+    }
+    if (!sample) {
+      addMsg('jarvis', "I can't reach Claude from here. Open this page in your phone's browser or the Claude app, signed in to claude.ai.", 'note');
+      return;
+    }
+
+    turns.push({ role: 'user', content: text });
+    const { el, bubble } = addMsg('jarvis', 'Thinking…', 'pending');
+    linksBox = document.createElement('div');
+    linksBox.className = 'links';
+    linksBox.hidden = true;
+    el.append(linksBox);
+    busy = true;
+    setState('thinking');
+    ctl = new AbortController();
+    go.textContent = 'Stop';
+    go.classList.add('stop');
+
+    let spoken = 0, started = false;
+    const speakUpTo = (whole, final) => {
+      // Speak whole sentences as they arrive, so it starts talking before the answer is done.
+      let end = spoken;
+      if (final) end = whole.length;
+      else {
+        const re = /[.!?…](?=\s)|\n/g;
+        re.lastIndex = spoken;
+        let m;
+        while ((m = re.exec(whole))) end = m.index + 1;
+      }
+      if (end > spoken) { say(whole.slice(spoken, end)); spoken = end; }
+    };
+    try {
+      const options = {
+        cache: false, signal: ctl.signal, modelTier: 'quick',
+        onText: ({ text: whole }) => {
+          if (!started) { started = true; el.classList.remove('pending'); }
+          bubble.textContent = shown(whole);
+          log.scrollTop = log.scrollHeight;
+          speakUpTo(whole, false);
+        },
+      };
+      if (canTools) options.tools = TOOLS;
+      const recent = turns.slice(-16);
+      const { text: answer, truncated } = await sample([{ role: 'user', content: rules() }, ...recent], options);
+      el.classList.remove('pending');
+      bubble.textContent = shown(answer);
+      speakUpTo(answer, true);
+      turns.push({ role: 'assistant', content: answer });
+      if (truncated) addMsg('jarvis', 'That answer was cut short. Ask for less at a time.', 'note');
+    } catch (e) {
+      const code = e && e.code;
+      el.classList.remove('pending');
+      if (code === 'cancelled') {
+        if (e.text) { bubble.textContent = shown(e.text); turns.push({ role: 'assistant', content: e.text }); }
+        else { el.remove(); turns.pop(); }
+      } else {
+        if (e && e.text && code !== 'refused') bubble.textContent = shown(e.text);
+        else el.remove();
+        turns.pop();
+        const message = PROBLEMS[code] || 'Something went wrong reaching Claude. Try again.';
+        addMsg('jarvis', message, 'note');
+        if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) {
+          sample = null;
+          setState('offline');
+        }
+        if (code === 'tools_unavailable') canTools = false;
+      }
+    } finally {
+      busy = false;
+      ctl = null;
+      linksBox = null;
+      go.textContent = 'Send';
+      go.classList.remove('stop');
+      if (!talking) setState(sample ? 'ready' : 'offline');
+    }
+  }
+
+  // ---- controls -------------------------------------------------------------------------
+  function fit() { box.style.height = 'auto'; box.style.height = Math.min(box.scrollHeight, 160) + 'px'; }
+  box.addEventListener('input', fit);
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(box.value); }
+  });
+  $('compose').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (busy && ctl) { ctl.abort(); hush(); return; }
+    if (talking && !box.value.trim()) { hush(); setState(sample ? 'ready' : 'offline'); return; }
+    send(box.value);
+  });
+
+  function renderVoiceBtn() {
+    $('voiceBtn').setAttribute('aria-pressed', String(!!prefs.speak));
+    $('speakOn').checked = !!prefs.speak;
+  }
+  $('voiceBtn').onclick = () => { prefs.speak = !prefs.speak; if (!prefs.speak) hush(); savePrefs(); renderVoiceBtn(); };
+
+  function fillVoices() {
+    const pick = $('voicePick');
+    const all = voices();
+    pick.textContent = '';
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = all.length ? 'Automatic' : 'This phone has no voices for the page';
+    pick.append(auto);
+    for (const v of all) {
+      const o = document.createElement('option');
+      o.value = v.voiceURI;
+      o.textContent = `${v.name} (${v.lang})`;
+      pick.append(o);
+    }
+    pick.value = prefs.voice;
+  }
+  if (synth) { fillVoices(); synth.addEventListener && synth.addEventListener('voiceschanged', fillVoices); }
+
+  function renderNames() {
+    $('title').textContent = assistant();
+    $('youName').value = prefs.you;
+    $('aiName').value = prefs.name;
+    $('rate').value = prefs.rate;
+  }
+  $('youName').addEventListener('change', (e) => { prefs.you = e.target.value.trim(); savePrefs(); });
+  $('aiName').addEventListener('change', (e) => { prefs.name = e.target.value.trim() || 'Jarvis'; savePrefs(); renderNames(); });
+  $('voicePick').addEventListener('change', (e) => { prefs.voice = e.target.value; savePrefs(); });
+  $('rate').addEventListener('change', (e) => { prefs.rate = Number(e.target.value) || 1; savePrefs(); });
+  $('speakOn').addEventListener('change', (e) => { prefs.speak = e.target.checked; savePrefs(); renderVoiceBtn(); });
+  $('testVoice').onclick = () => { unlock(); hush(); const was = prefs.speak; prefs.speak = true; say(`Hi${prefs.you ? ' ' + prefs.you : ''}, this is how I sound.`); prefs.speak = was; };
+  $('newChat').onclick = () => { if (ctl) ctl.abort(); hush(); turns = []; welcome(); $('sheet').hidden = true; };
+  $('settingsBtn').onclick = () => { renderNames(); renderFacts(); fillVoices(); $('sheet').hidden = false; };
+  $('closeSheet').onclick = () => { $('sheet').hidden = true; welcomeIfFresh(); };
+  function welcomeIfFresh() { if (!turns.length) welcome(); }
+
+  // ---- start ----------------------------------------------------------------------------
+  renderNames();
+  renderVoiceBtn();
+  welcome();
+  if (!synth) $('voiceBtn').hidden = true;
+
+  (async () => {
+    const claude = window.claude;
+    if (!claude || typeof claude.use !== 'function') { setState('offline'); return; }
+    const [s, db, user] = await Promise.all([claude.use('sample'), claude.use('db'), claude.use('user')]);
+    sample = s;
+    if (sample) {
+      const limits = await sample.limits().catch(() => null);
+      canTools = !!(limits && limits.tools);
+    }
+    if (!busy && !talking) setState(sample ? 'ready' : 'offline');
+    if (db && user) {
+      const me = await user.me();
+      if (me && me.id) {
+        memRef = db.collection('data/users/' + me.id).doc('jarvis');
+        try {
+          const snap = await memRef.get();
+          const body = snap.exists ? snap.data() : null;
+          facts = body && Array.isArray(body.facts) ? body.facts.filter((f) => typeof f === 'string') : [];
+        } catch (e) { facts = []; }
+      }
+    }
+    renderFacts();
+  })();
+})();
+</script>
