@@ -138,7 +138,7 @@ class LocalBrainTests(unittest.TestCase):
         with self.assertRaises(Exception) as caught:
             claude.handle('Tell me a joke', Speech(), threading.Event())
         message = claude.problem(caught.exception)
-        self.assertIn("can't reach the local model", message)
+        self.assertIn("can't reach", message)
         self.assertTrue(claude.broken)
 
     def test_searches_by_reading_the_screen(self):
@@ -176,6 +176,42 @@ class LocalBrainTests(unittest.TestCase):
         sent = server.requests[0]
         self.assertNotIn('look_at_screen', {t['function']['name'] for t in sent['tools']})
         self.assertIn("can't see the screen", sent['messages'][0]['content'])
+
+    def test_picks_the_fastest_useful_model(self):
+        self.assertEqual(brain.model_size('qwen3-8b-instruct-q4_k_m'), 8)
+        self.assertEqual(brain.model_size('Qwen3-30B-A3B'), 3)  # a mixture of experts runs 3B per word
+        self.assertEqual(brain.model_size('gemma-3-4b-it'), 4)
+        self.assertEqual(brain.model_size('llama-3.2-1b'), 1)
+        self.assertIsNone(brain.model_size('mistral-small'))
+        library = ['nomic-embed-text-1.5b', 'qwen3-14b', 'gemma-3-4b-it', 'llama-3.2-1b', 'qwen3-8b']
+        self.assertEqual(brain.fastest_model(library), 'gemma-3-4b-it')  # 1B is too small to use tools well
+        self.assertEqual(brain.fastest_model(['llama-3.2-1b', 'qwen2.5-0.5b']), 'llama-3.2-1b')
+        self.assertEqual(brain.fastest_model(['mistral-small', 'bge-reranker']), 'mistral-small')
+        self.assertIsNone(brain.fastest_model(['text-embedding-3']))
+        turbollm = ['qwen2.5-0.5b-instruct|Q4_K_M|491400032', 'claude-qwen2.5-0.5b-instruct|Q4_K_M|491400032',
+                    'qwen3-4b|Q4_K_M|2497280000', 'claude-qwen3-4b|Q4_K_M|2497280000']
+        self.assertEqual(brain.fastest_model(turbollm), 'qwen3-4b|Q4_K_M|2497280000')
+
+    def test_finds_whichever_server_is_running(self):
+        server = FakeServer([[{'content': 'Hi.'}]])
+        servers = (('TurboLLM', 'http://127.0.0.1:9/v1'), ('LM Studio', server.url))
+        try:
+            with mock.patch.object(brain, 'LOCAL_SERVERS', servers), \
+                    mock.patch.object(brain, 'start_turbollm') as start:
+                claude = local_brain('')
+                self.assertEqual(claude.handle('Hello', Speech(), threading.Event()), 'Hi.')
+        finally:
+            server.close()
+        self.assertEqual((claude.server, claude.url), ('LM Studio', server.url))
+        start.assert_not_called()
+
+    def test_says_what_to_do_when_no_server_runs(self):
+        with mock.patch.object(brain, 'LOCAL_SERVERS', (('TurboLLM', 'http://127.0.0.1:9/v1'),)), \
+                mock.patch('shutil.which', return_value=None):  # no Node.js, so TurboLLM can't be started
+            claude = local_brain('')
+            with self.assertRaises(brain.LocalProblem) as caught:
+                claude.handle('Hello', Speech(), threading.Event())
+        self.assertIn('npx turbollm', claude.problem(caught.exception))
 
     def test_thinking_is_held_back_while_it_arrives(self):
         self.assertEqual(brain._without_thinking('<think>hmm', final=False), '')

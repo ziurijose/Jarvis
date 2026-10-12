@@ -8,7 +8,7 @@ Two ways to reach Claude:
 Both stream: JARVIS starts speaking at the first sentence, while the rest is still being written.
 Simple commands ("pause", "volume 40", "open Spotify", quick.py) never reach Claude: JARVIS does
 them itself, at once and for free.
-  LocalBrain - a free model on this computer, through LM Studio or Ollama ("brain": "local").
+  LocalBrain - a free model on this computer, through TurboLLM, LM Studio or Ollama ("brain": "local").
 make_brain() picks the local model when chosen, else the API when a key is saved, else Claude
 Code, else None.
 """
@@ -927,7 +927,66 @@ def cli_brain(settings):
 
 # ---- a free model on this computer ------------------------------------------------------
 
-LOCAL_URL = 'http://localhost:1234/v1'  # LM Studio's server; Ollama's is http://localhost:11434/v1
+# Local model servers JARVIS looks for, in this order, when local_url isn't set. All serve the
+# same OpenAI-style API. TurboLLM (npx turbollm) is started if none of them is running.
+LOCAL_SERVERS = (('TurboLLM', 'http://127.0.0.1:6996/v1'), ('LM Studio', 'http://localhost:1234/v1'),
+                 ('Ollama', 'http://localhost:11434/v1'))
+NOT_FOR_CHAT = re.compile(r'embed|rerank|classif|systemone|whisper|tts', re.I)  # models that can't chat
+SMALLEST_USEFUL = 3  # billion parameters: smaller models fumble JARVIS's tools
+
+
+def model_size(name):
+    """Billions of parameters a model uses per word, from its name ("qwen3-8b" -> 8; a mixture
+    of experts like "30b-a3b" -> 3, the part that runs), or None if the name doesn't say."""
+    active = re.search(r'(?<![\d.])a(\d+(?:\.\d+)?)b(?![a-z])', name, re.I)
+    total = re.findall(r'(?<![\d.a-z])(\d+(?:\.\d+)?)b(?![a-z])', name, re.I)
+    if active:
+        return float(active.group(1))
+    return float(total[-1]) if total else None
+
+
+def fastest_model(names):
+    """The quickest model worth using: the smallest with at least SMALLEST_USEFUL billion
+    parameters; else the biggest of the small ones; else the first whose size is unknown."""
+    chat = [n for n in names if n and not NOT_FOR_CHAT.search(n)]
+    chat = [n for n in chat if not n.startswith('claude-')] or chat  # TurboLLM's names for its Claude-style API
+    sized = [(model_size(n), n) for n in chat if model_size(n) is not None]
+    useful = [x for x in sized if x[0] >= SMALLEST_USEFUL]
+    if useful:
+        return min(useful)[1]
+    if sized:
+        return max(sized)[1]
+    return chat[0] if chat else None
+
+
+def _answers(url, headers=None):
+    import requests
+    try:
+        return requests.get(url + '/models', headers=headers, timeout=2).ok
+    except requests.RequestException:
+        return False
+
+
+def start_turbollm(wait=120):
+    """Starts TurboLLM in the background (installed, or through npx) and waits until it answers.
+    Returns its address, or None when Node.js isn't installed or it didn't start."""
+    url = LOCAL_SERVERS[0][1]
+    command = shutil.which('turbollm')
+    command = [command] if command else ([shutil.which('npx'), '--yes', 'turbollm'] if shutil.which('npx') else None)
+    if not command:
+        return None
+    print('Starting TurboLLM (the first time, npx downloads it)...')
+    subprocess.Popen(command + ['--no-open'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, cwd=os.path.expanduser('~'),
+                     **(NO_WINDOW if IS_WINDOWS else {'start_new_session': True}))
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        if _answers(url):
+            return url
+        time.sleep(1)
+    return None
+
+
 # A local model can't search the web by itself, so it does what a person would: opens the
 # search results in the browser and reads them off the screen.
 LOCAL_RULES = '''
@@ -946,8 +1005,8 @@ class LocalProblem(RuntimeError):
 
 
 class LocalBrain(Brain):
-    """A free model running on this computer, through LM Studio or Ollama (both serve the same
-    OpenAI-style API), with the same tools as Claude. It searches the web by opening the results
+    """A free model running on this computer, through TurboLLM, LM Studio or Ollama (all serve the
+    same OpenAI-style API), with the same tools as Claude. It searches the web by opening the results
     on screen and reading them, so it needs a model that can see images; with one that can't,
     set "local_vision": false in user_settings.json."""
     name = 'Local model'
@@ -956,8 +1015,12 @@ class LocalBrain(Brain):
 
     def __init__(self, settings):
         self.settings = settings
-        self.url = (settings.get('local_url') or LOCAL_URL).rstrip('/')
+        self.url = (settings.get('local_url') or '').rstrip('/')  # '' = find one (LOCAL_SERVERS)
+        self.server = next((name for name, url in LOCAL_SERVERS if url == self.url), 'the local server')
         self.model = settings.get('local_model') or ''
+        key = settings.get('local_api_key')  # only when the server asks for one (e.g. shared on a network)
+        self.headers = {'Authorization': f'Bearer {key}'} if key else {}
+        self.lock = threading.Lock()  # the warm-up and the first request may both look for the server
         self.messages = []
         self.last_used = 0
         self.tools_by_name = dict(TOOLS)
@@ -975,25 +1038,42 @@ class LocalBrain(Brain):
             'and web_search for anything current', 'and the search tool for anything current')
         return prompt + (LOCAL_RULES if sees else NO_EYES)
 
+    def _server(self):
+        """The local server's address: local_url, else the first of LOCAL_SERVERS that answers,
+        else TurboLLM, started now."""
+        with self.lock:
+            if not self.url:
+                for name, url in LOCAL_SERVERS:
+                    if _answers(url, self.headers):
+                        self.server, self.url = name, url
+                        break
+                else:
+                    self.url = start_turbollm() or ''
+                    self.server = 'TurboLLM'
+                    if not self.url:
+                        raise LocalProblem('No local model server is running. Start TurboLLM (npx turbollm), '
+                                           'LM Studio or Ollama, or install Node.js so I can start TurboLLM.')
+            return self.url
+
     def _model(self):
-        """The model named in settings, else the first one the server has loaded."""
+        """The model named in settings, else the fastest useful one the server has."""
         if not self.model:
             import requests
-            listed = requests.get(self.url + '/models', timeout=5)
+            listed = requests.get(self._server() + '/models', headers=self.headers, timeout=5)
             listed.raise_for_status()
-            ids = [m.get('id', '') for m in listed.json().get('data', [])]
-            ids = [i for i in ids if i and 'embed' not in i.lower()]  # embedding models can't chat
-            if not ids:
-                raise LocalProblem('No model is loaded. Load one in LM Studio, or download one with Ollama.')
-            self.model = ids[0]
+            self.model = fastest_model([m.get('id', '') for m in listed.json().get('data', [])]) or ''
+            if not self.model:
+                raise LocalProblem(f'{self.server} has no model yet. Download one in its window '
+                                   '(TurboLLM: npx turbollm, then its setup suggests one for your graphics card).')
         return self.model
 
     def _warm_up(self):
         try:
             import requests
-            requests.post(self.url + '/chat/completions', timeout=(5, 300), json={
-                'model': self._model(), 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hi'}]})
-            print(f'Local model: {self.model} at {self.url}')
+            model = self._model()
+            requests.post(self._server() + '/chat/completions', headers=self.headers, timeout=(5, 300), json={
+                'model': model, 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hi'}]})
+            print(f'Local model: {model} on {self.server}')
         except Exception as error:  # the first request reports it properly
             print(f'The local model is not ready yet ({error}).')
 
@@ -1065,7 +1145,8 @@ class LocalBrain(Brain):
         body = {'model': self._model(), 'stream': True, 'max_tokens': 2048, 'tools': self.tools,
                 'messages': [{'role': 'system', 'content': self.system}] + self.messages}
         raw, fed, calls = '', 0, {}
-        with requests.post(self.url + '/chat/completions', json=body, stream=True, timeout=(5, 300)) as response:
+        with requests.post(self._server() + '/chat/completions', json=body, headers=self.headers, stream=True,
+                           timeout=(5, 300)) as response:
             if response.status_code >= 400:
                 raise LocalProblem(self._http_problem(response))
             for line in response.iter_lines(decode_unicode=True):
@@ -1107,8 +1188,8 @@ class LocalBrain(Brain):
     def _http_problem(self, response):
         detail = response.text[:300]
         if response.status_code == 404 or 'not found' in detail.lower():
-            return (f"The local model {self.model} isn't available. Load it in LM Studio, or set local_model "
-                    'in user_settings.json to one you have.')
+            return (f"The model {self.model} isn't available on {self.server}. Download it there, or set "
+                    'local_model in user_settings.json to one you have.')
         if 'image' in detail.lower() or 'vision' in detail.lower():
             if self.messages and isinstance(self.messages[-1].get('content'), list):
                 self.messages.pop()  # the screenshot it can't take
@@ -1129,7 +1210,7 @@ class LocalBrain(Brain):
         import requests
         if isinstance(error, requests.ConnectionError):
             self.broken = True
-            return "I can't reach the local model. Start LM Studio's server, or Ollama, and load a model."
+            return f"I can't reach {self.server}. Start it again (TurboLLM: npx turbollm)."
         if isinstance(error, requests.Timeout):
             return 'The local model took too long to answer.'
         if isinstance(error, (LocalProblem, requests.HTTPError)):
@@ -1147,7 +1228,7 @@ def _without_thinking(text, final):
 
 
 def make_brain(settings):
-    if settings.get('brain') == 'local':  # a free model on this computer (LM Studio or Ollama)
+    if settings.get('brain') == 'local':  # a free model on this computer (TurboLLM, LM Studio, Ollama)
         return LocalBrain(settings)
     key = settings.get('anthropic_api_key') or ''
     if key:

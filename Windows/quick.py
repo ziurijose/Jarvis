@@ -32,7 +32,7 @@ MUSIC = [
 SAID_MUSIC = {'play': 'Playing.', 'pause': 'Paused.', 'next': 'Next song.', 'previous': 'Previous song.'}
 
 VOLUME = re.compile(r'((set|turn|put|change|make)( the)? volume( up| down)?( to| at)?|volume( to| at)?|'
-                    r'(set|turn|put) (it|the sound)( up| down)? to) (?P<n>\w+( \w+)?)( percent|%)?')
+                    r'(set|turn|put) (it|the sound)( up| down)? to) (?P<n>\d{1,3}|[a-z]+( (?!percent\b)[a-z]+)?)( percent|%)?')
 NUMBER_WORDS = {'zero': 0, 'ten': 10, 'twenty': 20, 'thirty': 30, 'forty': 40, 'fifty': 50, 'sixty': 60,
                 'seventy': 70, 'eighty': 80, 'ninety': 90, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
                 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'fifteen': 15, 'twelve': 12,

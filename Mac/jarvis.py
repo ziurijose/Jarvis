@@ -8,7 +8,8 @@ forgets each conversation when it ends (recall.py can look it up). While JARVIS 
 over it (or say "Hey Jarvis") to stop it and say something new.
 
 Or type instead of talking, in a terminal:  python jarvis.py --text  (add --speak to also hear
-the answers). Same brain, tools and memory.
+the answers). Same brain, tools and memory. --local uses a free model on this computer instead of
+Claude (TurboLLM, started if needed, or LM Studio or Ollama), the fastest one it has.
 """
 import datetime
 import faulthandler
@@ -408,6 +409,8 @@ if __name__ == '__main__':
             sys.exit(0)
     helpers.HUD_TITLE = settings['assistant_name']
     helpers.VOICE = settings.get('voice')
+    if '--local' in sys.argv:  # this time, a free model on this computer (TurboLLM, LM Studio, Ollama)
+        settings = {**settings, 'brain': 'local'}
     settings = ask_for_claude_key(settings)
     brain_ = make_brain(settings)    # Claude Code starts in the background
     if brain_ is None:

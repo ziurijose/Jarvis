@@ -28,6 +28,9 @@ class Simple(unittest.TestCase):
         self.assertEqual(done('Set the volume to 75%.'), ('set_volume', {'percent': 75}))
         self.assertEqual(done('Turn the volume down to twenty five'), ('set_volume', {'percent': 25}))
         self.assertEqual(done('Volume max'), ('set_volume', {'percent': 100}))
+        self.assertEqual(done('Set the volume to 30 percent.'), ('set_volume', {'percent': 30}))
+        self.assertEqual(done('Volume fifty percent'), ('set_volume', {'percent': 50}))
+        self.assertEqual(done('Turn the volume to twenty five percent'), ('set_volume', {'percent': 25}))
 
     def test_questions(self):
         self.assertEqual(done('What time is it?'), (None, {}))
