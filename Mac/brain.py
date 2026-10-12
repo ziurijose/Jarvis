@@ -194,6 +194,8 @@ def remember(fact):
 
 
 def forget(about):
+    if not about.strip():  # an empty search matches every fact
+        return 'Forget what? Nothing was forgotten.'
     facts = load_memory()
     kept = [f for f in facts if about.lower() not in f.lower()]
     with open(MEMORY_PATH, 'w', encoding='utf-8') as f:
