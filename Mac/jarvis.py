@@ -150,7 +150,34 @@ def respond(brain_, text, hear):
     return interrupted.is_set(), said, speech.spoke
 
 
+FAILURES_BEFORE_QUITTING = 5  # in a row, each within a minute of the last restart
+
+
 def converse(settings, brain_) -> None:
+    """Runs the conversation loop, and starts it again after an unexpected error (a microphone
+    glitch, a transcription failure), so one bad moment doesn't close JARVIS. An error that keeps
+    coming back is passed on, so JARVIS stops instead of failing over and over."""
+    failures = 0
+    while True:
+        started = time.monotonic()
+        try:
+            _converse(settings, brain_)
+            return
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            failures = 1 if time.monotonic() - started > 60 else failures + 1
+            if failures >= FAILURES_BEFORE_QUITTING:
+                raise
+            hud('hide')
+            try:
+                speak("Sorry, something went wrong. I'm still listening.")
+            except Exception:
+                traceback.print_exc()
+            time.sleep(failures)
+
+
+def _converse(settings, brain_) -> None:
     """Wait to be called ("Hey Jarvinky"), then talk back and forth without the wake word.
     The conversation ends after FOLLOW_UP_SECONDS of quiet, when JARVIS says goodbye (Claude's
     end marker) or on a stop word; then Claude forgets it."""
