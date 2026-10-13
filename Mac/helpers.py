@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 
 from listen import Hearing
@@ -46,7 +47,7 @@ _hud_process = None
 HUD_TITLE = 'JARVIS'  # jarvis.py replaces this with the assistant name chosen in setup
 
 STATUS = ''  # what JARVIS is doing now ('LISTENING', 'THINKING'...), for the menu bar
-BRAIN_NAME = ''  # 'Claude Code' or 'Claude API'; jarvis.py sets it
+BRAIN_NAME = ''  # 'Claude Code', shown in the hub; jarvis.py sets it
 # The hub (hub.py, a separate program) reads this to show what JARVIS is doing.
 STATUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'status.json')
 
@@ -97,6 +98,34 @@ def start_hearing(settings=None) -> None:
                        assistant_name=settings.get('assistant_name') or 'Jarvis',
                        wake_word=settings.get('wake_word', True) is not False,
                        barge_in=settings.get('barge_in', True) is not False)
+    _hearing.set_microphone(microphone_wanted())
+    _watch_microphone_switch()
+
+
+_watching = []
+
+
+def _watch_microphone_switch(every=0.5) -> None:
+    """Applies the hub's microphone switch while JARVIS runs: the hub saves it without a
+    restart, so JARVIS checks the settings file twice a second."""
+    if _watching:
+        return
+
+    def loop():
+        while True:
+            try:
+                _hearing.set_microphone(microphone_wanted())
+            except Exception as error:  # a microphone that won't reopen must not stop the checks
+                print(f'Microphone switch failed: {error}')
+            time.sleep(every)
+    _watching.append(threading.Thread(target=loop, daemon=True))
+    _watching[0].start()
+
+
+def microphone_wanted(path=None) -> bool:
+    """The hub's microphone switch, from user_settings.json: on unless it was turned off."""
+    import user_settings
+    return user_settings.read_settings(path or user_settings.SETTINGS_PATH).get('microphone_on') is not False
 
 
 def hearing() -> Hearing:

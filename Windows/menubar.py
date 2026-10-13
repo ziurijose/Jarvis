@@ -32,8 +32,7 @@ LABEL = 'com.jarvis.assistant'
 PLIST = os.path.expanduser(f'~/Library/LaunchAgents/{LABEL}.plist')
 LOG = os.path.join(HERE, 'jarvis.log')
 DEFAULT_HOTKEY = '<ctrl>+<alt>+j' if IS_WINDOWS else '<alt>+<space>'
-ICONS = {'': '◉', 'LISTENING': '◎', 'RECOGNIZING': '◎', 'THINKING': '◌', 'SPEAKING': '◉›',
-         'ASKING CLAUDE': '◌'}
+ICONS = {'': '◉', 'LISTENING': '◎', 'RECOGNIZING': '◎', 'THINKING': '◌', 'SPEAKING': '◉›'}
 
 
 def open_hub(_sender=None, _item=None) -> None:

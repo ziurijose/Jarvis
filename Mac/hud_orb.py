@@ -20,7 +20,6 @@ POINTS = 900
 MOODS = {
     'LISTENING': {'energy': 0.35, 'spin': 0.35, 'ripple': 0.0},
     'RECOGNIZING': {'energy': 0.75, 'spin': 1.1, 'ripple': 0.0},
-    'ASKING CLAUDE': {'energy': 0.6, 'spin': 0.6, 'ripple': 0.8},
     'THINKING': {'energy': 0.6, 'spin': 0.8, 'ripple': 0.8},
     'SPEAKING': {'energy': 0.55, 'spin': 0.45, 'ripple': 0.5},
 }
@@ -179,7 +178,7 @@ class OrbRenderer:
         else:
             draw.text((s / 2, s * 0.76), self.title, font=self.title_font, fill=TEXT + (255,), anchor='mm')
         # Status pill with a pulsing lime dot.
-        label = {'ASKING CLAUDE': 'Asking Claude'}.get(self.status, self.status.capitalize())
+        label = self.status.capitalize()
         if not label:
             return
         text_w = draw.textlength(label, font=self.status_font)

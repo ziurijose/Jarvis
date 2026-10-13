@@ -24,8 +24,8 @@ Copy-Item requirements-windows.txt .venv\installed-requirements.txt -Force
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Write-Host ''
-    Write-Host "Note: Claude Code isn't installed. JARVIS uses a free model on this PC, and Claude Code"
-    Write-Host 'for the hardest requests: install it from https://claude.com/claude-code and sign in once.'
+    Write-Host "Note: Claude Code isn't installed, and JARVIS thinks with it. Install it from"
+    Write-Host 'https://claude.com/claude-code and sign in once.'
 }
 
 Write-Host ''

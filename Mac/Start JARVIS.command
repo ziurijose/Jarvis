@@ -24,10 +24,18 @@ if { [ ! -f .venv/.no-whisper ] && ! .venv/bin/python -c "import faster_whisper"
    || { [ ! -f .venv/.no-kokoro ] && [ ! -f models/kokoro-v1.0.onnx ]; }; then
     bash add_speech.sh
 fi
-# Older installs: add the local model (Node.js, TurboLLM, the model) and Claude Code once.
-if [ ! -f .venv/.no-local ] && [ ! -x .node/bin/turbollm ]; then
-    bash add_local_model.sh
+export PATH="$HOME/.local/bin:$PATH"  # where Claude Code installs
+if ! command -v claude >/dev/null 2>&1; then
+    bash add_claude_code.sh
+fi
+# Older installs: add Obsidian and graphify once (skipped after a failed try; run add_obsidian.sh to retry).
+if { { [ ! -d /Applications/Obsidian.app ] && [ ! -d "$HOME/Applications/Obsidian.app" ]; } \
+     || ! command -v graphify >/dev/null 2>&1; } && [ ! -f .venv/.no-obsidian ]; then
+    bash add_obsidian.sh
 fi
 
-export PATH="$PWD/.node/bin:$HOME/.local/bin:$PATH"  # TurboLLM, its Node.js, and Claude Code
+# The hub opens alongside JARVIS. It is its own program (nohup keeps it open if this Terminal
+# window closes), so closing the hub leaves JARVIS running.
+nohup .venv/bin/python -W ignore hub.py >/dev/null 2>&1 &
+
 exec .venv/bin/python -W ignore jarvis.py

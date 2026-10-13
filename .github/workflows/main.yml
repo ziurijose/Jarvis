@@ -64,4 +64,4 @@ jobs:
 
       - name: Check the shell scripts
         if: matrix.folder == 'Mac'
-        run: for f in setup_mac.sh add_speech.sh add_local_model.sh "Start JARVIS.command"; do bash -n "$f"; done
+        run: for f in setup_mac.sh add_speech.sh add_claude_code.sh add_obsidian.sh "Start JARVIS.command"; do bash -n "$f"; done

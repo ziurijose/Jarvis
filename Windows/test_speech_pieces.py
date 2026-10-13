@@ -29,6 +29,16 @@ class Pieces(unittest.TestCase):
         queued = pieces_before_finish('The lights in the kitchen are now off. Done. The hall lights are off too. ')
         self.assertEqual(''.join(queued).split(), 'The lights in the kitchen are now off. Done. The hall lights are off too.'.split())
 
+    def test_flush_says_a_short_sentence_now(self):
+        queued = []
+        with mock.patch.object(voices.Speech, '_queue', lambda self, text: queued.append(text)):
+            speech = voices.Speech.__new__(voices.Speech)
+            speech.pending, speech.queued = '', False
+            speech.feed('Let me check.')
+            self.assertEqual(queued, [])  # under 25 characters: held for what follows
+            speech.flush()
+        self.assertEqual(queued, ['Let me check.\n'])
+
     def test_tiny_pieces_still_wait_for_more(self):
         self.assertEqual(pieces_before_finish('Sure. '), [])
 
@@ -72,6 +82,23 @@ class Interrupting(unittest.TestCase):
             speech._maker.join(2)
         self.assertFalse(speech._player.is_alive(), 'the player thread is stuck after stop()')
         self.assertFalse(speech._maker.is_alive())
+
+
+class ClockTimes(unittest.TestCase):
+    def said(self, text):
+        engine = mock.Mock()
+        voices._synthesize(engine, voices.DEFAULT_VOICE, text)
+        return engine.create.call_args[0][0]
+
+    def test_times_are_written_the_way_people_say_them(self):
+        for text, said in [("It's 3:08 PM.", "It's 3 oh 8 PM."), ("It's 3:00 PM.", "It's 3 PM."),
+                           ('Meet at 3:00.', "Meet at 3 o'clock."), ('at 10:30 tomorrow', 'at 10 30 tomorrow'),
+                           ('resets 6:50pm', 'resets 6 50pm'), ('at 9:00am', 'at 9am')]:
+            self.assertEqual(self.said(text), said)
+
+    def test_ratios_and_seconds_are_left_alone(self):
+        for text in ('the 16:9 screen', '3:08:15', 'won 2:1'):
+            self.assertEqual(self.said(text), text)
 
 
 if __name__ == '__main__':

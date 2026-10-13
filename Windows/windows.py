@@ -112,7 +112,43 @@ def quit_app(name: str) -> str:
         return f'{name} is not running.'
     for pid in pids:
         subprocess.run(['taskkill', '/PID', str(pid)], capture_output=True, creationflags=CREATE_NO_WINDOW)
-    return f'Closed {found[0] if found else name}.'
+    for window in _app_windows(pids, names):  # Store apps ignore taskkill but close like this
+        _ask_to_close(window)
+    app = found[0] if found else name
+    for _ in range(30):  # up to 3 seconds to close
+        if not any(psutil.pid_exists(pid) for pid in pids):
+            return f'Closed {app}.'
+        time.sleep(0.1)
+    return f'Asked {app} to close, but it is still open (it may be asking to save something).'
+
+
+def _visible_windows():
+    """[(handle, {'title', 'class', 'pid'})] for every visible top-level window."""
+    import win32gui
+    import win32process
+    found = []
+
+    def add(handle, _):
+        if win32gui.IsWindowVisible(handle):
+            found.append((handle, {'title': win32gui.GetWindowText(handle), 'class': win32gui.GetClassName(handle),
+                                   'pid': win32process.GetWindowThreadProcessId(handle)[1]}))
+    win32gui.EnumWindows(add, None)
+    return found
+
+
+def _app_windows(pids, names):
+    """The app's own windows: those its processes own, and a Store app's frame, which Windows'
+    ApplicationFrameHost owns and which is titled with the app's name. Never another app's
+    window that merely mentions the name (a browser tab about calculators)."""
+    return [handle for handle, w in _visible_windows()
+            if w['pid'] in pids or (w['class'] == 'ApplicationFrameWindow' and _simple(w['title']) in names)]
+
+
+def _ask_to_close(handle):
+    """The same as clicking the window's X: the app can still ask to save."""
+    import win32con
+    import win32gui
+    win32gui.PostMessage(handle, win32con.WM_CLOSE, 0, 0)
 
 
 # ---- browser ---------------------------------------------------------------------------
