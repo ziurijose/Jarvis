@@ -38,6 +38,13 @@ NUMBER_WORDS = {'zero': 0, 'ten': 10, 'twenty': 20, 'thirty': 30, 'forty': 40, '
                 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'fifteen': 15, 'twelve': 12,
                 'hundred': 100, 'max': 100, 'maximum': 100, 'full': 100, 'half': 50}
 
+# "Louder", "turn the volume down": pressed volume keys, so it changes from wherever it is now.
+VOLUME_STEP = re.compile(r'(turn|bump|crank)( the)? (volume|sound) (?P<a>up|down)( a bit| a little)?|'
+                         r'(turn|bump|crank) (?P<b>up|down) the (volume|sound)|'
+                         r'(volume|sound) (?P<c>up|down)( a bit| a little)?|'
+                         r'(make it )?(a (little|bit) )?(?P<d>louder|quieter|softer)')
+STEP_PRESSES = 5  # Windows moves the volume 2 points per press, so 10 points
+
 TIME = re.compile(r"(what's|whats|what is) the time( right now)?|what time is it( right now)?|"
                   r"(do you know |tell me )?what time it is")
 DATE = re.compile(r"(what's|whats|what is) (the date|today's date|the date today|today)|"
@@ -145,6 +152,12 @@ def match(text: str, is_mac: bool = False, own_names=()) -> Optional[Match]:
         level = number(found['n'])
         if level is not None:
             return Match('set_volume', {'percent': level}, lambda _r, level=level: f'Volume {level}.')
+
+    found = VOLUME_STEP.fullmatch(said)
+    if found and not is_mac:  # untested on a Mac, which may ignore volume keys sent this way
+        up = next(g for g in found.group('a', 'b', 'c', 'd') if g) in ('up', 'louder')
+        return Match('press_keys', {'keys': 'volumeup' if up else 'volumedown', 'times': STEP_PRESSES},
+                     lambda _r, up=up: 'Turned it up.' if up else 'Turned it down.')
 
     if TIME.fullmatch(said):
         return Match(None, {}, lambda _r: spoken_time(datetime.datetime.now()))

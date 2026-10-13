@@ -162,8 +162,7 @@ screen.png
 status.json
 status.json.tmp
 models/
-Face-Recognition/samples/
-Face-Recognition/trainer/
+**/Face-Recognition/
 
 # Past conversations and their search index
 conversations.jsonl
@@ -175,3 +174,10 @@ recall_index.npy
 # What the Mac installer adds to the JARVIS folder
 .node/
 .node.tar.gz
+# Made while JARVIS runs, from the user's own notes and conversations
+recall_index.npz
+recall_index.npz.part.npz
+conversations.jsonl.in-vault
+conversations.jsonl.part
+*.tmp
+.claude/settings.local.json

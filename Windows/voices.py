@@ -109,7 +109,21 @@ def sentences(text: str) -> list:
     return pieces
 
 
+# A clock time such as 3:08 or 10:30, and the am/pm after it if there is one.
+CLOCK = re.compile(r'(?<![\d:])(\d{1,2}):([0-5]\d)(?![\d:])(?=(\s?[AaPp]\.?[Mm]\b)?)')
+
+
+def _clock(match):
+    hour, minute, meridiem = match.groups()
+    if minute == '00':
+        return hour if meridiem else f"{hour} o'clock"
+    return f'{hour} oh {minute[1]}' if minute[0] == '0' else f'{hour} {minute}'
+
+
 def _synthesize(engine, voice, text):
+    # Kokoro's phonemizer reads "3:08" as "three, zero eight" (the colon becomes a pause),
+    # so clock times are written the way people say them: "3 oh 8", "10 30", "3 o'clock".
+    text = CLOCK.sub(_clock, text)
     with _kokoro_lock:  # one generation at a time; onnxruntime already uses every core
         return engine.create(text, voice=voice['id'], speed=SPEED, lang=voice.get('language') or 'en-us')
 
@@ -183,6 +197,10 @@ class Speech:
                 break
             self._queue(self.pending[:match.end()])
             self.pending = self.pending[match.end():]
+
+    def flush(self) -> None:
+        """Says what is held back (a short or unfinished-looking last sentence) now."""
+        self.feed('\n')
 
     def finish(self) -> None:
         self._queue(self.pending)

@@ -59,5 +59,38 @@ class WakeWordWhileSpeaking(unittest.TestCase):
         self.assertTrue(interrupted([400] * 10, jarvis_output=0, wake_at=5))
 
 
+def talked_over(loudness, jarvis_output):
+    """Whether talking (no wake word) interrupts JARVIS, with headphones: none of its voice
+    comes back, so the microphone hears only the room (100) and whoever talks."""
+    stop = threading.Event()
+    hearing = object.__new__(listen.Hearing)
+    hearing.__dict__.update(hub=FakeMic([frame(n) for n in [100] * 30 + loudness], stop), calibrated=True,
+                            _loader=None, whisper=True, noise=100, wake=None,
+                            echo=listen.EchoGate(), pressed=threading.Event(), barge_in=True)
+    with mock.patch('playback.output_level', return_value=jarvis_output):
+        return hearing.wait_for_interrupt(stop) is True
+
+
+class TalkingOverIt(unittest.TestCase):
+    # The speech threshold is 300 here; the user, close to the microphone, is far louder.
+    def test_someone_across_the_room_does_not_interrupt_it_speaking(self):
+        self.assertFalse(talked_over([450] * 30, jarvis_output=3000))
+
+    def test_someone_across_the_room_does_not_interrupt_it_thinking(self):
+        self.assertFalse(talked_over([450] * 30, jarvis_output=0))
+
+    def test_a_short_loud_sound_does_not_interrupt_it(self):
+        self.assertFalse(talked_over([2000] * 4 + [100] * 20, jarvis_output=3000))
+
+    def test_the_user_talking_over_it_does(self):
+        self.assertTrue(talked_over([2000, 2000, 150] * 4 + [100] * 5, jarvis_output=3000))
+
+    def test_the_user_talking_on_while_it_thinks_does(self):
+        self.assertTrue(talked_over([2000, 2000, 2000, 150] * 5 + [100] * 5, jarvis_output=0))
+
+    def test_a_brief_aside_while_it_thinks_does_not(self):
+        self.assertFalse(talked_over([2000] * 8 + [100] * 20, jarvis_output=0))
+
+
 if __name__ == '__main__':
     unittest.main()

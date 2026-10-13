@@ -13,9 +13,11 @@ JARVIS - voice assistant for your Windows PC
 3. A setup window appears. Type your name, pick a name for your assistant and choose its
    voice. (A face lock, so JARVIS starts only for you, can be turned on later in the hub.)
 
-4. Optional: JARVIS answers with a free AI model on your PC and hands the hardest requests to
-   Claude Code. To let it, install Claude Code (https://claude.com/claude-code) and sign in
-   once. No API key is needed. (The free model needs Node.js: https://nodejs.org)
+4. JARVIS thinks with Claude Code, using your Claude plan: install it
+   (https://claude.com/claude-code) and sign in once. No API key is needed.
+   JARVIS keeps what it remembers as notes in Documents\JARVIS Vault\JARVIS (Memory.md, and a
+   note per day of conversations). Open the folder in Obsidian (obsidian.md) to read and edit
+   them; the hub's Memory page can move them to another folder.
 
 5. JARVIS greets you. Then just say "Hey" and its name (the one you picked,
    or "Jarvis") and what you want, in one breath: "Hey Jarvis, what's the weather tomorrow?"

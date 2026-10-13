@@ -41,8 +41,12 @@ class Stopped(Exception):
     """The user pushed the mouse into a screen corner to stop JARVIS."""
 
 
+ACTION_PAUSE = 0.03  # after each mouse or key action; pyautogui's own 0.1 s made seven clicks take 0.7 s
+
+
 def _gui():
     import pyautogui
+    pyautogui.PAUSE = ACTION_PAUSE
     return pyautogui
 
 
@@ -96,6 +100,12 @@ def _to_screen(x, y):
     if x in (0, w - 1) and y in (0, h - 1):  # an exact corner would trip the emergency stop
         x, y = (1 if x == 0 else w - 2), (1 if y == 0 else h - 2)
     return x, y
+
+
+def from_screen(x, y):
+    """A real screen position in screenshot pixels (the other way round from _to_screen)."""
+    (w, h), (sw, sh) = _scale()
+    return round(float(x) * sw / w), round(float(y) * sh / h)
 
 
 def screenshot_png(region=None):
@@ -348,3 +358,41 @@ def hold_keys(keys, seconds=1):
 def wait(seconds=1):
     time.sleep(_seconds(seconds))
     return 'Waited.'
+
+
+# ---- waiting for the screen to settle ------------------------------------------------------
+
+POLL = 0.15          # seconds between looks; a look costs about 30 ms
+SETTLED = 0.5        # still this long after a change: the app or page has finished drawing
+UNCHANGED = 1.5      # nothing changed for this long: it was already done
+CHANGED_SHARE = 0.02  # a frame differs when over 2% of it changed; a blinking cursor or a spinner is less
+
+
+def _thumbnail():
+    return _gui().screenshot().convert('L').resize((160, 90))
+
+
+def _differs(a, b):
+    from PIL import ImageChops
+    changed = sum(ImageChops.difference(a, b).point(lambda v: 255 if v > 24 else 0).histogram()[255:])
+    return changed > CHANGED_SHARE * a.width * a.height
+
+
+def wait_for_screen(seconds, stop, grab=None, differs=None, now=time.monotonic):
+    """Waits until the screen settles (an app opened, a page loaded), at most seconds, instead
+    of a fixed guess. stop: an Event set when the user talks."""
+    grab, differs = grab or _thumbnail, differs or _differs
+    started = now()
+    last, still_since, changed = grab(), started, False
+    while now() - started < seconds:
+        if stop.wait(POLL):
+            return 'Stopped waiting: the user started talking.'
+        frame = grab()
+        if differs(frame, last):
+            changed, still_since = True, now()
+        last = frame
+        if now() - still_since >= (SETTLED if changed else UNCHANGED):
+            took = now() - started
+            return (f'The screen changed and settled after {took:.1f}s.' if changed
+                    else f'Nothing changed on screen in {took:.1f}s.')
+    return f'Waited {seconds:g}s; the screen was still changing.'

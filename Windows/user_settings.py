@@ -60,7 +60,7 @@ def write_settings(settings: dict, path: str = SETTINGS_PATH) -> dict:
 
 def save_settings(user_name: str, assistant_name: str, path: str = SETTINGS_PATH,
                   voice=None) -> dict:
-    # Keeps what's already there (the installer may have saved the local model's engine).
+    # Keeps what's already there (settings made in the hub).
     return update_settings({'user_name': user_name.strip(),
                             'assistant_name': assistant_name.strip() or DEFAULT_ASSISTANT_NAME,
                             'voice': voice}, path)

@@ -19,6 +19,7 @@ import cv2
 
 import face_enroll
 import user_settings
+import vault
 import voices
 from platform_utils import IS_MAC, open_camera
 
@@ -66,8 +67,9 @@ class SetupApi:
     # ---- names and voice ---------------------------------------------------------------
 
     def defaults(self):
-        face_lock = user_settings.face_lock_on(user_settings.read_settings(self._settings_path))
-        return {'assistant': user_settings.DEFAULT_ASSISTANT_NAME, 'face_lock': face_lock}
+        settings = user_settings.read_settings(self._settings_path)
+        return {'assistant': user_settings.DEFAULT_ASSISTANT_NAME, 'face_lock': user_settings.face_lock_on(settings),
+                'vault': settings.get('vault') or vault.DEFAULT_VAULT}
 
     def list_voices(self):
         self._voices = voices.all_voices()
@@ -90,6 +92,21 @@ class SetupApi:
         self.result = user_settings.save_settings(self._user, self._assistant, self._settings_path,
                                                   voice=self._voice)
         return True
+
+    def choose_vault(self):
+        """Lets the user pick the vault folder (JARVIS uses a JARVIS folder inside it)."""
+        import webview
+        kind = webview.FileDialog.FOLDER if hasattr(webview, 'FileDialog') else webview.FOLDER_DIALOG
+        chosen = self._window.create_file_dialog(kind)
+        if not chosen:
+            return None
+        try:
+            vault.move_to(chosen[0])  # setup also runs on existing installs: take their notes along
+            user_settings.update_settings({'vault': chosen[0]}, self._settings_path)
+        except OSError as error:
+            print(f"Couldn't use that folder for the vault: {error}")
+            return None
+        return chosen[0]
 
     # ---- face scan ---------------------------------------------------------------------
 

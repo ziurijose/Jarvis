@@ -18,7 +18,8 @@ uv venv --python 3.13 .venv
 uv pip install --python .venv/bin/python -r requirements-mac.txt
 cp requirements-mac.txt .venv/installed-requirements.txt
 bash add_speech.sh
-bash add_local_model.sh
+bash add_claude_code.sh
+bash add_obsidian.sh
 
 # macOS asks for the camera and microphone by itself. These two it doesn't: Terminal needs them
 # for JARVIS to use the mouse and keyboard (and the Option+Space hotkey), and to see the screen.
@@ -35,8 +36,8 @@ fi
 
 if command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ]; then
     echo
-    echo "One more, optional: JARVIS hands the hardest requests to Claude Code. To let it, sign in"
-    echo "once: open a new Terminal window, type  claude  and press Return, and follow the steps."
+    echo "One more: JARVIS thinks with Claude Code, so sign in to it once: open a new Terminal"
+    echo "window, type  claude  and press Return, and follow the steps."
 fi
 
 echo

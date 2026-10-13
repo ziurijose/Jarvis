@@ -11,14 +11,13 @@ import sys
 import time
 
 import user_settings
+import vault
 import voices
 from menubar import login_item_enabled, set_login_item
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 IS_WINDOWS = sys.platform == 'win32'
 STATUS_PATH = os.path.join(HERE, 'status.json')
-MEMORY_PATH = os.path.join(HERE, 'memory.json')  # brain.py's list of facts about the user
-MAX_FACTS = 200  # brain.remember keeps the newest 200
 THINKING = {'fast': 'low', 'balanced': 'medium', 'deep': 'high'}  # what the hub says -> claude_effort
 MODELS = [('', 'Default'), ('claude-opus-5-5', 'Opus 5.5 (smartest)'),
           ('claude-sonnet-5-5', 'Sonnet 5.5 (balanced)'), ('claude-haiku-5-5', 'Haiku 5.5 (fastest)')]
@@ -80,11 +79,9 @@ def _clean(text):
 class HubApi:
     """Methods the page calls. Attributes starting with an underscore are hidden from it."""
 
-    def __init__(self, settings_path=user_settings.SETTINGS_PATH, status_path=STATUS_PATH,
-                 memory_path=MEMORY_PATH):
+    def __init__(self, settings_path=user_settings.SETTINGS_PATH, status_path=STATUS_PATH):
         self._settings_path = settings_path
         self._status_path = status_path
-        self._memory_path = memory_path
         self._voices = []
         self._window = None
 
@@ -106,12 +103,12 @@ class HubApi:
             'assistant_name': s.get('assistant_name') or user_settings.DEFAULT_ASSISTANT_NAME,
             'voice': s.get('voice') or voices.DEFAULT_VOICE,
             'language': s.get('language', ''),
-            'brain': s.get('brain') or 'auto',  # auto (local, Claude Code when needed), local or claude
             'model': s.get('claude_model', ''),
             'thinking': next((k for k, v in THINKING.items() if v == effort), 'fast'),
             'wake_word': s.get('wake_word', True) is not False,
             'barge_in': s.get('barge_in', True) is not False,
             'microphone': s.get('microphone', ''),
+            'microphone_on': s.get('microphone_on') is not False,
             'hotkey': s.get('hotkey', ''),
             'face_lock': user_settings.face_lock_on(s),
             'face_strictness': int(s.get('face_lock_threshold', 80)),
@@ -130,11 +127,6 @@ class HubApi:
                 if not _clean(form[key]):
                     return {'ok': False, 'error': f'{label} can\'t be blank.'}
                 s[key] = _clean(form[key])[:30]
-        if form.get('brain') in ('auto', 'local', 'claude'):
-            if form['brain'] == 'auto':
-                s.pop('brain', None)  # the default
-            else:
-                s['brain'] = form['brain']
         if 'thinking' in form:
             s['claude_effort'] = THINKING.get(form['thinking'], 'low')
         if form.get('voice_index') is not None and self._voices:
@@ -157,6 +149,12 @@ class HubApi:
         if 'start_at_login' in form and bool(form['start_at_login']) != login_item_enabled():
             set_login_item(bool(form['start_at_login']))
         return {'ok': True}
+
+    def set_microphone(self, on):
+        """The microphone switch on Home. Saved straight away and with no restart: JARVIS
+        checks it twice a second (helpers._watch_microphone_switch)."""
+        user_settings.update_settings({'microphone_on': bool(on)}, self._settings_path)
+        return bool(on)
 
     # ---- voices and microphones --------------------------------------------------------
 
@@ -189,51 +187,71 @@ class HubApi:
         except Exception:
             pass  # the window is closing
 
-    # ---- memory: what JARVIS remembers about the user (it rereads it every conversation) --
-
-    def _facts(self):
-        try:
-            with open(self._memory_path, encoding='utf-8') as f:
-                facts = json.load(f)
-            return facts if isinstance(facts, list) else []
-        except (OSError, ValueError):
-            return []
-
-    def _save_facts(self, facts):
-        user_settings.save_json(self._memory_path, facts[-MAX_FACTS:], indent=1, ensure_ascii=False)
+    # ---- memory: the vault's JARVIS/Memory.md (JARVIS rereads it every conversation) -----
 
     def list_memory(self):
-        return [{'index': i, 'text': str(text)} for i, text in enumerate(self._facts())]
+        return [{'index': i, 'text': text} for i, text in enumerate(vault.facts())]
 
     def add_memory(self, text, index=None):
         """Adds a fact at the end, or at index (to put back one that was just deleted)."""
-        text = _clean(text)
-        if not text:
+        if not _clean(text):
             return {'ok': False, 'error': 'Type something for it to remember.'}
-        facts = self._facts()
-        facts.insert(len(facts) if index is None else min(max(int(index), 0), len(facts)), text)
-        self._save_facts(facts)
+        if not vault.add_fact(_clean(text), None if index is None else int(index)):
+            return {'ok': False, 'error': "The vault folder can't be written."}
         return {'ok': True}
 
     def edit_memory(self, index, text, was):
-        """was is the fact as the page showed it: if JARVIS changed the list since, nothing is touched."""
-        text = _clean(text)
-        facts = self._facts()
-        if not text:
+        """was is the fact as the page showed it: if it changed since, nothing is touched."""
+        if not _clean(text):
             return {'ok': False, 'error': 'A fact can\'t be blank. Delete it instead.'}
-        if not 0 <= int(index) < len(facts) or facts[int(index)] != was:
+        if not vault.edit_fact(int(index), _clean(text), was):
             return {'ok': False, 'error': 'That changed while you were editing. Have another look.'}
-        facts[int(index)] = text
-        self._save_facts(facts)
         return {'ok': True}
 
     def delete_memory(self, index, was):
-        facts = self._facts()
-        if not 0 <= int(index) < len(facts) or facts[int(index)] != was:
+        if not vault.delete_fact(int(index), was):
             return {'ok': False, 'error': 'That changed in the meantime. Have another look.'}
-        del facts[int(index)]
-        self._save_facts(facts)
         return {'ok': True}
+
+    def vault_path(self):
+        return vault.root()
+
+    def _pick_folder(self):
+        import webview
+        kind = webview.FileDialog.FOLDER if hasattr(webview, 'FileDialog') else webview.FOLDER_DIALOG
+        chosen = self._window.create_file_dialog(kind, directory=vault.root())
+        return chosen[0] if chosen else None
+
+    def choose_vault(self):
+        """Lets the user pick another vault folder, and takes JARVIS's notes there."""
+        new = self._pick_folder()
+        if not new:
+            return None
+        try:
+            moved = vault.move_to(new)
+        except OSError as error:
+            return {'ok': False, 'error': f"Couldn't move the notes there: {error}"}
+        try:
+            user_settings.update_settings({'vault': new}, self._settings_path)
+        except OSError as error:
+            return {'ok': False, 'error': f"The notes moved to {new}, but the setting couldn't be saved: {error}"}
+        vault.ensure_memory()
+        state = vault.register_with_obsidian()
+        note = {'moved': 'Its notes moved to the new vault.', 'same': 'That is already its vault.',
+                'kept': 'That vault already had a JARVIS folder, so it uses that one now.'}[moved]
+        if state == 'running':
+            note += ' Quit Obsidian and press Open in Obsidian to add it there.'
+        return {'ok': True, 'path': new, 'note': note}
+
+    def open_vault(self):
+        vault.ensure_memory()
+        state = vault.register_with_obsidian()
+        if state == 'no-obsidian':
+            return {'ok': False, 'error': 'Obsidian isn\'t installed. Get it from obsidian.md.'}
+        if state == 'running':  # Obsidian would answer the link with "vault not found"
+            return {'ok': False, 'error': 'Quit Obsidian, then press Open in Obsidian again '
+                                          '(or in Obsidian use "Open folder as vault").'}
+        return {'ok': True} if vault.open_in_obsidian() else {'ok': False, 'error': 'Obsidian didn\'t open.'}
 
     # ---- JARVIS itself -----------------------------------------------------------------
 

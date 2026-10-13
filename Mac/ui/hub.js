@@ -35,7 +35,7 @@ addEventListener('resize', () => fitHeadline($('home-name')));
 function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
 /* ---- status ----------------------------------------------------------------------------- */
-const MOOD = { LISTENING: 'listening', RECOGNIZING: 'listening', THINKING: 'thinking', 'ASKING CLAUDE': 'thinking', SPEAKING: 'speaking' };
+const MOOD = { LISTENING: 'listening', RECOGNIZING: 'listening', THINKING: 'thinking', SPEAKING: 'speaking' };
 const WORD = { listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', idle: 'Waiting for you', off: 'Off' };
 const THINKING_WORD = { fast: 'Fast', balanced: 'Balanced', deep: 'Deep' };
 
@@ -74,6 +74,24 @@ function renderHome() {
   }
 }
 
+/* The microphone switch: saved at once, no Save or restart (JARVIS checks it twice a second). */
+function showMic(on) {
+  const row = $('mic-switch');
+  row.querySelector('.switch').classList.toggle('on', on);
+  row.setAttribute('aria-checked', on);
+  $('mic-note').textContent = on ? 'On: listening for its name.' : "Off: it can't hear anything until you turn this on.";
+}
+
+async function flipMic() {
+  const on = $('mic-switch').getAttribute('aria-checked') !== 'true';
+  showMic(on);
+  showMic(await api().set_microphone(on));
+  toast(on ? 'Microphone on' : 'Microphone off');
+}
+
+$('mic-switch').addEventListener('click', flipMic);
+$('mic-switch').addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flipMic(); } });
+
 async function poll() {
   try { showStatus(await api().status()); } catch (e) { /* the window is closing */ }
   setTimeout(poll, 500);
@@ -83,7 +101,7 @@ async function poll() {
 const TEXT = ['user_name', 'assistant_name', 'hotkey', 'city'];
 const SELECTS = ['language', 'model', 'microphone'];
 const SWITCHES = ['wake_word', 'barge_in', 'face_lock', 'start_at_login', 'menu_bar'];
-const SEGMENTS = ['brain', 'thinking'];
+const SEGMENTS = ['thinking'];
 
 function options(select, pairs, current) {
   select.innerHTML = pairs.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
@@ -111,7 +129,6 @@ function fill(s) {
   for (const key of TEXT) $(key).value = s[key] || '';
   options($('language'), s.languages, s.language);
   options($('model'), s.models, s.model);
-  setSegment('brain', s.brain);
   setSegment('thinking', s.thinking);
   for (const key of SWITCHES) setSwitch(key, s[key]);
   $('face_strictness').value = s.face_strictness;
@@ -211,6 +228,7 @@ window.onPreviewDone = () => document.querySelectorAll('.voice.playing').forEach
 const TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 
 async function loadMemory() {
+  $('vault-path').textContent = await api().vault_path();
   const facts = await api().list_memory();
   $('fact-count').textContent = facts.length;
   $('facts-empty').classList.toggle('hidden', facts.length > 0);
@@ -223,6 +241,18 @@ async function loadMemory() {
     </li>`).join('');
   $('facts').querySelectorAll('.fact').forEach((li, i) => { li.dataset.was = facts[facts.length - 1 - i].text; });
 }
+
+$('vault-choose').addEventListener('click', async () => {
+  const result = await api().choose_vault();
+  if (!result) return;  // closed without choosing
+  toast(result.ok ? result.note : result.error);
+  await loadMemory();
+});
+
+$('vault-open').addEventListener('click', async () => {
+  const result = await api().open_vault();
+  if (!result.ok) toast(result.error);
+});
 
 $('teach').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -280,6 +310,7 @@ $('toast-undo').addEventListener('click', async () => {
 async function load() {
   loaded = await api().load();
   fill(loaded);
+  showMic(loaded.microphone_on);
   original = collect();
   renderHome();
 }

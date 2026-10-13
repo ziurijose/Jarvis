@@ -8,7 +8,7 @@ Blocked:
   - pages on the abuse.ch URLhaus (malware) and OpenPhish (phishing) lists, refreshed every few
     hours in the background (refresh(), started with JARVIS) and kept in malicious_urls.cache;
   - this computer and the home network (localhost, 192.168.x.x, ...), where a page could steer
-    Claude at the router or at JARVIS's own local model server;
+    Claude at the router or at other programs running on this computer;
   - addresses carrying a long run of encoded data, the way a page could get Claude to smuggle a
     file's contents out in a link.
 When the lists can't be downloaded, the other checks still run and the fetch goes ahead.

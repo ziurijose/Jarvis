@@ -32,6 +32,16 @@ class Simple(unittest.TestCase):
         self.assertEqual(done('Volume fifty percent'), ('set_volume', {'percent': 50}))
         self.assertEqual(done('Turn the volume to twenty five percent'), ('set_volume', {'percent': 25}))
 
+    def test_volume_steps(self):
+        up, down = ('press_keys', {'keys': 'volumeup', 'times': 5}), ('press_keys', {'keys': 'volumedown', 'times': 5})
+        for text in ['Louder.', 'A bit louder', 'Volume up.', 'Turn the volume up a little', 'Volume up a bit',
+                     'Make it a bit louder']:
+            self.assertEqual(done(text), up, text)
+        for text in ['Make it quieter', 'Softer.', 'Can you turn the volume down a bit?', 'Turn down the sound']:
+            self.assertEqual(done(text), down, text)
+        self.assertIsNone(done('Louder', is_mac=True))
+        self.assertEqual(done('Turn the volume up to 50'), ('set_volume', {'percent': 50}))
+
     def test_questions(self):
         self.assertEqual(done('What time is it?'), (None, {}))
         self.assertEqual(done("What's the date today?"), (None, {}))
@@ -68,6 +78,10 @@ class Replies(unittest.TestCase):
         self.assertEqual(reply('Spotify: pause.'), 'Paused.')
         self.assertEqual(reply('Nothing is playing.'), 'Nothing is playing.')
 
+    def test_volume_step_reply(self):
+        self.assertEqual(quick.match('quieter').reply('Pressed volumedown.'), 'Turned it down.')
+        self.assertEqual(quick.match('louder').reply('Pressed volumeup.'), 'Turned it up.')
+
     def test_time_and_date(self):
         self.assertEqual(quick.spoken_time(datetime.datetime(2026, 10, 10, 15, 5)), "It's 3:05 PM.")
         self.assertEqual(quick.spoken_time(datetime.datetime(2026, 10, 10, 0, 0)), "It's 12 AM.")
@@ -82,32 +96,6 @@ class Replies(unittest.TestCase):
         reply = quick.match('quit spotify').reply
         self.assertEqual(reply('Quit Spotify.'), 'Closed Spotify.')
         self.assertEqual(reply('Spotify is not running.'), 'Spotify is not running.')
-
-
-class ToldToTheModel(unittest.TestCase):
-    """A simple command is answered without the model, and the model hears about it next time."""
-
-    def test_local_brain(self):
-        import threading
-        import brain
-        from test_local_brain import FakeServer, Speech
-
-        server = FakeServer([[{'content': 'Ha.'}], [{'content': 'Again.'}]])
-        try:
-            local = brain.LocalBrain({'local_url': server.url, 'assistant_name': 'Jarbungus', 'city': 'Boston'})
-            speech = Speech()
-            said = local.handle('What time is it?', speech, threading.Event())
-            self.assertTrue(said.startswith("It's "))
-            self.assertEqual(speech.said, said)
-            self.assertEqual(server.requests, [])  # the model wasn't asked
-            local.handle('Tell me a joke.', Speech(), threading.Event())
-            local.handle('Another one.', Speech(), threading.Event())
-        finally:
-            server.close()
-        first = server.requests[0]['messages'][-1]['content']
-        self.assertIn('What time is it?', first)
-        self.assertTrue(first.endswith('Tell me a joke.'))
-        self.assertNotIn('What time is it?', server.requests[1]['messages'][-1]['content'])
 
 
 if __name__ == '__main__':

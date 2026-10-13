@@ -10,9 +10,7 @@ over it (or say "Hey Jarvis") to stop it and say something new.
 Or type instead of talking, in a terminal:  python jarvis.py --text  (add --speak to also hear
 the answers). Same brain, tools and memory.
 
-The brain: a free model on this computer (TurboLLM, set up and started as needed), with Claude
-Code taking over only when it must (brain.HybridBrain). --local: the local model only; --claude:
-Claude only. "brain" in user_settings.json sets it for good.
+The brain: Claude Code on this computer, signed in with your Claude plan (brain.CliBrain).
 """
 import datetime
 import faulthandler
@@ -82,10 +80,11 @@ import helpers
 import listen
 import recall
 import voices as voice_lib
-from brain import Sleep, cli_brain, make_brain
+from brain import Sleep, make_brain
 from helpers import hud, speak
 from platform_utils import open_camera
 import user_settings
+import vault
 from user_settings import load_settings
 
 
@@ -235,16 +234,11 @@ def _converse(settings, brain_) -> None:
         if said or not interrupted:  # a request cut off before any answer is said again in full
             recall.record(conv, text, said)
         cut_off = ('speaking' if spoke else 'thinking') if interrupted else None
-        if getattr(brain_, 'broken', False):
-            fallback = cli_brain(settings)
-            if fallback:
-                brain_ = fallback
-                helpers.BRAIN_NAME = brain_.name
-                print('(Switched to Claude Code.)')  # in the log only: it should sound the same
         keep_audio = bool(cut_off)
-        if getattr(brain_, 'ended', False) and not cut_off:  # Claude said goodbye
+        # Claude said goodbye, or the Claude plan's limit is used up (anything more would fail too)
+        if getattr(brain_, 'ended', False) and (not cut_off or getattr(brain_, 'at_limit', False)):
             end_conversation(brain_)
-            talking = False
+            talking, cut_off = False, None
 
 
 # ---- typing instead of talking ------------------------------------------------------------
@@ -263,6 +257,10 @@ class _Printed:
         print(text, end='', flush=True)
         if self.voice:
             self.voice.feed(text)
+
+    def flush(self):
+        if self.voice:
+            self.voice.flush()
 
     def stop(self):
         if self.voice:
@@ -324,11 +322,6 @@ def type_to_jarvis(settings, brain_, aloud=False) -> None:
         said = result.get('said') or ''
         if said or not interrupted.is_set():
             recall.record(conv, text, said)
-        if getattr(brain_, 'broken', False):
-            fallback = cli_brain(settings)
-            if fallback:
-                brain_ = fallback
-                helpers.BRAIN_NAME = brain_.name
         if getattr(brain_, 'ended', False):  # it said goodbye: the next request starts afresh
             brain_.forget_conversation()
             conv = recall.start_conversation()
@@ -430,14 +423,13 @@ if __name__ == '__main__':
             sys.exit(0)
     helpers.HUD_TITLE = settings['assistant_name']
     helpers.VOICE = settings.get('voice')
-    if '--local' in sys.argv:  # this time, only the free model on this computer, never Claude
-        settings = {**settings, 'brain': 'local'}
-    elif '--claude' in sys.argv:  # this time, only Claude
-        settings = {**settings, 'brain': 'claude'}
+    try:
+        vault.prepare()  # before the brain starts: its instructions include the facts this may move into the vault
+    except Exception as error:  # memory set-up must never stop JARVIS starting
+        print(f'Could not set up the memory vault: {error}')
     brain_ = make_brain(settings)    # Claude Code starts in the background
     if brain_ is None:
-        message = ('Claude only mode needs Claude Code. Install it from claude.com/claude-code and sign in, '
-                   'or start me without --claude to use the local model.')
+        message = 'I need Claude Code to think. Install it from claude.com/claude-code and sign in.'
         print(message)
         speak(message)
         sys.exit(1)

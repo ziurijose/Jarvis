@@ -86,6 +86,7 @@
   .home-copy .kicker { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
   .home-copy .sub { color: var(--muted); font-size: 16px; margin: 18px 0 26px; }
   .home-copy .sub b { color: var(--text); font-weight: 500; }
+  .home-copy .mic { margin-top: 18px; max-width: 380px; }
 
   /* settings */
   .settings { overflow-y: auto; padding: 48px 56px 140px; }
@@ -171,6 +172,8 @@
   .memory h1 { font: 700 64px/0.9 var(--display); letter-spacing: -0.05em; text-transform: uppercase; }
   .memory .lead { color: var(--muted); margin: 12px 0 0; }
   .memory-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+  .vault-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: -12px 0 28px; color: var(--muted); }
+  .vault-row code { color: var(--text); font-family: inherit; overflow-wrap: anywhere; flex: 1 1 240px; }
   .count { text-align: right; font: 700 64px/0.9 var(--display); letter-spacing: -0.05em; color: var(--lime); }
   .count small { display: block; font: 500 12px var(--body); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
   .teach { display: flex; gap: 10px; }
@@ -261,6 +264,7 @@
         <h1 class="display" id="home-name">JARVIS</h1>
         <p class="sub" id="home-sub">&nbsp;</p>
         <div class="row" id="home-actions"></div>
+        <div class="switch-row mic" id="mic-switch" role="switch" tabindex="0" aria-checked="true"><div class="text"><b>Microphone</b><span id="mic-note">On: listening for its name.</span></div><div class="switch on"></div></div>
       </div>
     </section>
 
@@ -288,14 +292,8 @@
       </div>
 
       <div class="section">
-        <div><h2>Brain</h2><p class="hint">A free AI model on this computer answers. Claude Code (your Claude plan, no API key) takes the requests it can't do.</p></div>
+        <div><h2>Brain</h2><p class="hint">Claude Code answers, with your Claude plan (no API key).</p></div>
         <div class="fields">
-          <div class="wide">
-            <label class="field-label">Thinks with</label>
-            <div class="seg" id="brain" role="radiogroup">
-              <button data-value="auto">Local + Claude</button><button data-value="local">Local only</button><button data-value="claude">Claude only</button>
-            </div>
-          </div>
           <div><label class="field-label" for="model">Claude's model</label><select class="input" id="model"></select></div>
           <div>
             <label class="field-label">Claude's thinking</label>
@@ -342,9 +340,15 @@
       <div class="memory-head">
         <div>
           <h1>Memory</h1>
-          <p class="lead">What it knows about you. It reads these at the start of every conversation.</p>
+          <p class="lead">What it knows about you, kept in Memory.md in your Obsidian vault. It reads it at the start of every conversation.</p>
         </div>
         <div class="count"><span id="fact-count">0</span><small>facts</small></div>
+      </div>
+      <div class="vault-row">
+        <span>Kept as notes in</span>
+        <code id="vault-path"></code>
+        <button class="btn ghost" id="vault-choose" type="button">Change folder</button>
+        <button class="btn ghost" id="vault-open" type="button">Open in Obsidian</button>
       </div>
       <form class="teach" id="teach" autocomplete="off">
         <input class="input" id="new-fact" maxlength="300" spellcheck="true" placeholder="Teach it something, like &quot;my sister's name is Ana&quot;">

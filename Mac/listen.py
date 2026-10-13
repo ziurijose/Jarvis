@@ -31,8 +31,13 @@ SAMPLE_RATE = 16000
 FRAME = 1280  # 80 ms at 16 kHz: what openWakeWord expects
 END_QUIET = 8  # frames of quiet (0.64 s) that end a sentence
 SHORT_QUIET = 14  # after under a second of speech ("Hey Jarvinky,"), wait 1.1 s for the rest
-BARGE_IN_FRAMES = 3  # frames (0.24 s) of the user's voice over JARVIS's that interrupt it
-THINKING_FRAMES = 5  # frames (0.4 s) of the user talking while JARVIS thinks, to interrupt it
+# Cutting in is counted over a short window, so the gaps between words don't reset it, and
+# needs a voice well above the speech threshold: the user is close to the microphone, while
+# other people in the room (or a TV) are not.
+BARGE_IN_FRAMES = 7, 10  # frames of the user's voice over JARVIS's, out of the last 10 (0.8 s)
+THINKING_FRAMES = 12, 16  # frames of the user talking while JARVIS thinks, out of the last 16 (1.3 s)
+BARGE_IN_LOUDNESS = 2.0  # times the speech threshold
+EARLY_QUIET = 3  # frames of quiet (0.24 s) after which transcribing starts, while the pause is confirmed
 
 
 def default_model(language='en'):
@@ -162,12 +167,23 @@ class MicHub:
             self.ready.notify_all()
 
     def start(self):
+        if self.stream is not None:
+            return self
         import sounddevice as sd
         self.stream = sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=FRAME, channels=1, dtype='int16',
                                         device=self.device_index,
                                         callback=lambda indata, n, t, status: self.put(bytes(indata)))
         self.stream.start()
         return self
+
+    def stop(self):
+        """Closes the microphone (the hub's switch): nothing more is heard, and the system's
+        mic-in-use light goes out. start() opens it again."""
+        stream, self.stream = self.stream, None
+        if stream is not None:
+            stream.stop()
+            stream.close()
+        self.forget()
 
     def read(self, timeout=None):
         """The next 80 ms of audio (bytes), or None after timeout seconds."""
@@ -285,6 +301,8 @@ def end_chime():
 
 
 class Hearing:
+    _early_job = None  # the background transcription listen() started during a pause
+
     def __init__(self, mic_index=None, language=None, hints=(), model=None, load=True,
                  assistant_name='Jarvis', wake_word=True, barge_in=True):
         self.mic_index = mic_index
@@ -300,6 +318,7 @@ class Hearing:
         self.recognizer = sr.Recognizer()  # only for Google's recognizer, the fallback
         self.calibrated = False
         self.noise = 100.0
+        self.mic_on = True  # the hub's microphone switch
         self.pressed = threading.Event()  # the hotkey or the menu bar's Talk
         # Names Whisper should spell right, e.g. the assistant's and the user's names.
         words = [h for h in hints if h] + ['Claude', 'Wikipedia', 'YouTube', 'Spotify', 'screenshot']
@@ -328,6 +347,24 @@ class Hearing:
         except Exception as e:  # no internet for the first download, disk full...
             self.whisper_error = str(e)
             print(f'Whisper could not start ({e}); using Google speech recognition instead.')
+            return
+        self._warm_up()
+
+    def _warm_up(self):
+        """Transcribes a second of silence once, so the first request isn't slower than the
+        rest (Whisper and its speech filter get ready on their first use). The filter cuts
+        silence out entirely, so a second pass without it makes Whisper itself run."""
+        import numpy as np
+        silence = np.zeros(SAMPLE_RATE, np.float32)
+        try:
+            for vad in (True, False):
+                segments, _info = self.whisper.transcribe(
+                    silence, language=self.language[:2], beam_size=1, vad_filter=vad, temperature=0.0,
+                    max_new_tokens=4, initial_prompt=self.prompt, condition_on_previous_text=False,
+                    without_timestamps=True)
+                list(segments)  # the work happens as the segments are read
+        except Exception:
+            pass  # only a head start: the first request just takes a little longer
 
     @property
     def engine(self):
@@ -341,10 +378,23 @@ class Hearing:
         """How loud a frame must be to count as speech: well above the room's noise."""
         return max(300.0, self.noise * 3)
 
+    def set_microphone(self, on):
+        """The hub's microphone switch. Off closes the microphone; whatever is listening then
+        hears nothing until it is on again."""
+        if on == self.mic_on:
+            return
+        self.mic_on = on
+        print('Microphone on.' if on else "Microphone off (the hub's switch).")
+        if self.hub is not None:
+            self.hub.start() if on else self.hub.stop()
+
     def _start(self):
         if self.hub is None:
-            self.hub = MicHub(self.mic_index).start()
-        if not self.calibrated:
+            self.hub = MicHub(self.mic_index)
+            if self.mic_on:
+                self.hub.start()
+        # Calibrating on a closed microphone would wait for audio that never comes.
+        if not self.calibrated and self.mic_on:
             # One second of the room's sound, once (not before every request).
             levels = [level(f) for f in (self.hub.read(timeout=2) for _ in range(12)) if f]
             from mic import SILENT_LEVEL
@@ -400,15 +450,20 @@ class Hearing:
                 waited += seconds
                 if wait_seconds and waited > wait_seconds:
                     return None
-            quiet = 0
+            quiet, early = 0, None
             while quiet < quiet_needed(len(frames) - quiet) and len(frames) * seconds < max_seconds:
                 frame = self.hub.read(timeout=2)
                 if frame is None:
                     break
                 frames.append(frame)
                 quiet = quiet + 1 if level(frame) < self.threshold * 0.7 else 0
+                if quiet == EARLY_QUIET:  # maybe the end: start on the words while that is confirmed
+                    early = self._transcribe_early(frames)
             if len(frames) - quiet - len(lead_in) >= 3:  # longer than a click or a bump
-                return sr.AudioData(b''.join(frames), SAMPLE_RATE, 2)
+                audio = sr.AudioData(b''.join(frames), SAMPLE_RATE, 2)
+                if early and quiet >= EARLY_QUIET:  # nothing was said after it started
+                    audio.early = early
+                return audio
 
     def trigger(self):
         """Same as saying the wake word (the hotkey and the menu bar call this)."""
@@ -421,7 +476,8 @@ class Hearing:
         import playback
         self._start()
         self.engine  # waits until the wake word detector has loaded
-        run = 0
+        voiced = collections.deque(maxlen=THINKING_FRAMES[1])  # whether each recent frame was the user
+        was_talking = None
         recent = collections.deque(maxlen=12)  # loudness of the last second, for the wake word
         while not stop.is_set():
             if self.pressed.is_set():
@@ -444,15 +500,15 @@ class Hearing:
                     return True
             if not self.barge_in:
                 continue
-            if talking:
-                # JARVIS is talking: the user must be heard over its voice.
-                run = run + 1 if user else 0
-                needed = BARGE_IN_FRAMES
-            else:
-                # JARVIS is thinking: the user is still talking, or changed their mind.
-                run = run + 1 if loud > self.threshold else 0
-                needed = THINKING_FRAMES
-            if run >= needed:
+            if talking != was_talking:  # what counted as the user before no longer applies
+                voiced.clear()
+                was_talking = talking
+            close = loud > self.threshold * BARGE_IN_LOUDNESS
+            # Talking: the user must be heard over JARVIS's voice. Thinking: the user is still
+            # talking, or changed their mind.
+            voiced.append(close and (user or not talking))
+            needed, window = BARGE_IN_FRAMES if talking else THINKING_FRAMES
+            if sum(list(voiced)[-window:]) >= needed:
                 self.hub.unread(8)  # the start of what they said
                 return True
         return None
@@ -509,10 +565,33 @@ class Hearing:
                 return request
         return None
 
+    def _transcribe_early(self, frames):
+        """Starts transcribing frames in the background, for transcribe(audio) to pick up.
+        Returns (thread, result), or None while Whisper isn't ready or is still busy with an
+        earlier pause (two at once would slow each other down). A run for a pause the user
+        talked through is not stopped, so on a slow computer the final run may wait behind it."""
+        if self.whisper is None or (self._early_job and self._early_job.is_alive()):
+            return None
+        audio, result = sr.AudioData(b''.join(frames), SAMPLE_RATE, 2), {}
+
+        def run():
+            try:
+                result['text'] = self._whisper(audio)
+            except Exception:
+                pass  # transcribe() then runs Whisper itself
+        self._early_job = threading.Thread(target=run, daemon=True)
+        self._early_job.start()
+        return self._early_job, result
+
     def transcribe(self, audio):
         """The words in audio, or None if nothing was understood."""
         if self.engine == 'whisper':
-            text = self._whisper(audio)
+            early = getattr(audio, 'early', None)  # listen() started on it during the final pause
+            if early:
+                early[0].join()
+            text = early[1].get('text') if early else None
+            if text is None:  # not started early, or that failed
+                text = self._whisper(audio)
         else:
             try:
                 text = self.recognizer.recognize_google(audio, language=self.language)
