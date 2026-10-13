@@ -7,6 +7,7 @@ A running command is stopped the moment the user talks.
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -52,7 +53,7 @@ def _shell(command):
         # UTF-8 output, so names with accents or emoji come back readable.
         return ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
                 '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' + command]
-    return ['/bin/zsh', '-lc', command]
+    return [shutil.which('zsh') or '/bin/sh', '-lc', command]  # zsh on a Mac; plain sh elsewhere
 
 
 def run_command(command: str, confirmed: bool = False, heard: str = '', interrupted=None) -> str:

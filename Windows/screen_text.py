@@ -40,6 +40,8 @@ def _automation():
 
 def _read():
     """(the active window's title, its controls as dicts, seconds it took)."""
+    if sys.platform != 'win32':
+        raise OSError('UI Automation is Windows only')
     import ctypes
     started = time.monotonic()
     uia, cache = _automation()
@@ -57,8 +59,6 @@ def _read():
 def describe():
     """The active window's controls, one per line with its centre in screenshot pixels, or None
     when a screenshot would serve Claude better (or this isn't Windows)."""
-    if sys.platform != 'win32':
-        return None
     try:
         title, found, seconds = _read()
     except Exception:  # no UI Automation, or the window closed while it was read
